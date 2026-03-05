@@ -1,0 +1,84 @@
+---
+title: Delete Authentication Token
+api: DELETE /v1/admin/authentications/:id
+description: Delete an authentication token
+---
+
+## Authentication
+
+Requires a token with `authentications:write` permission.
+
+## Path Parameters
+
+<ParamField path="id" type="string" required>
+  The unique UUID of the authentication token to delete.
+</ParamField>
+
+## Response
+
+Returns `204 No Content` on successful deletion.
+
+## Example Request
+
+```bash
+curl -X DELETE https://api.weaponx.io/v1/admin/authentications/950e8400-e29b-41d4-a716-446655440004 \
+  -H "Authorization: Bearer YOUR_TOKEN"
+```
+
+## Example Response
+
+No response body (204 status code).
+
+## Soft Deletion
+
+Authentication tokens are soft-deleted, meaning:
+- The token is marked as deleted (`removed_at` timestamp is set)
+- The token is immediately invalidated and cannot be used for API requests
+- The token record is retained for audit purposes
+- The token can still be retrieved via the Get endpoint (for audit trails)
+
+## Error Responses
+
+### 401 Unauthorized
+
+```json
+{
+  "error": "Unauthorized",
+  "message": "Invalid or missing authentication token"
+}
+```
+
+### 403 Forbidden
+
+```json
+{
+  "error": "Forbidden",
+  "message": "Insufficient permissions: authentications:write required"
+}
+```
+
+### 404 Not Found
+
+```json
+{
+  "error": "Not Found",
+  "message": "Authentication token not found"
+}
+```
+
+<Warning>
+  Deleting a token immediately revokes all API access using that token. Ensure you have alternative credentials before deleting tokens used by active services.
+</Warning>
+
+## Alternative: Disable Instead of Delete
+
+Consider temporarily disabling a token instead of deleting it:
+
+```bash
+curl -X PUT https://api.weaponx.io/v1/admin/authentications/TOKEN_ID \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"is_active": false}'
+```
+
+This allows you to re-enable the token later if needed.

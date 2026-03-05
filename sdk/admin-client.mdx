@@ -1,0 +1,655 @@
+---
+title: AdminClient
+description: Comprehensive API for managing projects, configurations, rules, roles, authentication, and environments
+---
+
+## Overview
+
+The `AdminClient` provides full administrative access to manage all aspects of your Weapon-X deployment, including projects, configurations, rules, roles, authentication tokens, and environments.
+
+## Initialization
+
+```typescript
+import { AdminClient } from 'weapon-x-sdk';
+
+const admin = new AdminClient({
+  baseUrl: 'https://api.weapon-x.io',
+  headers: {
+    Authorization: 'Bearer your-admin-api-key'
+  }
+});
+```
+
+## Configuration Management
+
+### createConfig
+
+Create a new configuration (feature flag or config).
+
+```typescript
+async createConfig(data: CreateConfigRequest): Promise<Config>
+```
+
+<Tabs>
+  <Tab title="Boolean Flag">
+    ```typescript
+    const config = await admin.createConfig({
+      project_reference: 'my-app',
+      key: 'enable-new-ui',
+      description: 'Toggle for new UI redesign',
+      type: 'BOOLEAN',
+      is_active: true,
+      default_value: false
+    });
+    ```
+  </Tab>
+  
+  <Tab title="JSON Config">
+    ```typescript
+    const config = await admin.createConfig({
+      project_reference: 'my-app',
+      key: 'app-settings',
+      description: 'Application configuration',
+      type: 'JSON',
+      is_active: true,
+      default_value: {
+        theme: 'dark',
+        language: 'en',
+        notifications: true
+      }
+    });
+    ```
+  </Tab>
+  
+  <Tab title="String Config">
+    ```typescript
+    const config = await admin.createConfig({
+      project_reference: 'my-app',
+      key: 'welcome-message',
+      description: 'User welcome message',
+      type: 'STRING',
+      is_active: true,
+      default_value: 'Welcome to our app!'
+    });
+    ```
+  </Tab>
+  
+  <Tab title="Secret">
+    ```typescript
+    const config = await admin.createConfig({
+      project_reference: 'my-app',
+      key: 'api-endpoint',
+      description: 'External API endpoint',
+      type: 'SECRET',
+      is_active: true,
+      default_value: 'https://api.example.com'
+    });
+    ```
+  </Tab>
+</Tabs>
+
+**Request Parameters:**
+
+```typescript
+interface CreateConfigRequest {
+  project_reference: string;           // Project identifier
+  key: string;                         // Unique config key
+  description?: string;                // Human-readable description
+  type: 'BOOLEAN' | 'JSON' | 'STRING' | 'SECRET';
+  is_active: boolean;                  // Enable/disable config
+  default_value: unknown;              // Default value when no rules match
+  validation_schema?: Record<string, unknown>; // JSON schema for validation
+}
+```
+
+### assignRule
+
+Add a conditional rule to an existing configuration.
+
+```typescript
+async assignRule(configKey: string, data: CreateRuleRequest): Promise<Rule>
+```
+
+<Tabs>
+  <Tab title="Simple Condition">
+    ```typescript
+    const rule = await admin.assignRule('enable-new-ui', {
+      project_reference: 'my-app',
+      name: 'Enable for beta users',
+      return_value: true,
+      conditions: [
+        {
+          attribute: 'user_type',
+          operator: 'EQUALS',
+          value: 'beta'
+        }
+      ]
+    });
+    ```
+  </Tab>
+  
+  <Tab title="Multiple Conditions">
+    ```typescript
+    const rule = await admin.assignRule('premium-features', {
+      project_reference: 'my-app',
+      name: 'Premium users in US',
+      return_value: true,
+      conditions: [
+        {
+          attribute: 'subscription',
+          operator: 'EQUALS',
+          value: 'premium'
+        },
+        {
+          attribute: 'country',
+          operator: 'IN',
+          value: ['US', 'CA', 'UK']
+        }
+      ]
+    });
+    ```
+  </Tab>
+  
+  <Tab title="With Rollout">
+    ```typescript
+    const rule = await admin.assignRule('new-algorithm', {
+      project_reference: 'my-app',
+      name: 'Gradual rollout to all users',
+      return_value: true,
+      conditions: [], // Empty = matches all
+      rollout_percentage: 25 // Only 25% of users
+    });
+    ```
+  </Tab>
+</Tabs>
+
+**Request Parameters:**
+
+```typescript
+interface CreateRuleRequest {
+  project_reference: string;
+  name: string;
+  return_value: unknown;
+  conditions: Condition[];
+  rollout_percentage?: number;  // 0-100, defaults to 100
+}
+
+interface Condition {
+  attribute: string;                    // Context attribute to check
+  operator: Operator;                   // Comparison operator
+  value: string | string[];             // Value(s) to compare against
+}
+
+type Operator =
+  | 'EQUALS'
+  | 'NOT_EQUALS'
+  | 'IN'
+  | 'NOT_IN'
+  | 'CONTAINS'
+  | 'GREATER_THAN'
+  | 'LESS_THAN'
+  | 'REGEX';
+```
+
+## Project Management
+
+### createProject
+
+Create a new project to organize configurations.
+
+```typescript
+async createProject(data: CreateProjectRequest): Promise<Project>
+```
+
+```typescript
+const project = await admin.createProject({
+  reference: 'mobile-app',
+  name: 'Mobile Application'
+});
+```
+
+### getProject
+
+Retrieve a project by its reference.
+
+```typescript
+async getProject(reference: string): Promise<Project>
+```
+
+```typescript
+const project = await admin.getProject('mobile-app');
+console.log(project.name); // "Mobile Application"
+```
+
+### listProjects
+
+List all projects accessible with the given token.
+
+```typescript
+async listProjects(token: string): Promise<Project[]>
+```
+
+```typescript
+const projects = await admin.listProjects('bearer-token');
+for (const project of projects) {
+  console.log(project.reference, project.name);
+}
+```
+
+### updateProject
+
+Update project name.
+
+```typescript
+async updateProject(reference: string, data: UpdateProjectRequest): Promise<Project>
+```
+
+```typescript
+const updated = await admin.updateProject('mobile-app', {
+  name: 'Mobile App (iOS & Android)'
+});
+```
+
+### deleteProject
+
+Delete a project.
+
+```typescript
+async deleteProject(reference: string): Promise<void>
+```
+
+```typescript
+await admin.deleteProject('old-project');
+```
+
+## Role Management
+
+### createRole
+
+Create a new role with permissions.
+
+```typescript
+async createRole(data: CreateRoleRequest): Promise<Role>
+```
+
+```typescript
+const role = await admin.createRole({
+  name: 'Developer',
+  permissions: ['read:configs', 'write:configs', 'read:projects']
+});
+```
+
+### getRole
+
+Retrieve a role by ID.
+
+```typescript
+async getRole(id: string): Promise<Role>
+```
+
+```typescript
+const role = await admin.getRole('role-123');
+```
+
+### listRoles
+
+List all roles.
+
+```typescript
+async listRoles(): Promise<Role[]>
+```
+
+```typescript
+const roles = await admin.listRoles();
+```
+
+### updateRole
+
+Update role name or permissions.
+
+```typescript
+async updateRole(id: string, data: UpdateRoleRequest): Promise<Role>
+```
+
+```typescript
+const updated = await admin.updateRole('role-123', {
+  permissions: ['read:configs', 'write:configs', 'read:projects', 'write:projects']
+});
+```
+
+### deleteRole
+
+Delete a role.
+
+```typescript
+async deleteRole(id: string): Promise<void>
+```
+
+```typescript
+await admin.deleteRole('role-123');
+```
+
+## Authentication Management
+
+### createAuthentication
+
+Create API credentials for a project.
+
+```typescript
+async createAuthentication(data: CreateAuthenticationRequest): Promise<Authentication>
+```
+
+```typescript
+const auth = await admin.createAuthentication({
+  project_reference: 'my-app',
+  role_id: 'role-123',
+  secret_key: 'generated-secret-key',
+  email: 'dev@example.com',
+  description: 'Development API key',
+  is_active: true,
+  expiration_date: '2026-12-31T23:59:59Z'
+});
+```
+
+### getAuthentication
+
+Retrieve authentication by ID.
+
+```typescript
+async getAuthentication(id: string): Promise<Authentication>
+```
+
+```typescript
+const auth = await admin.getAuthentication('auth-123');
+```
+
+### listAuthenticationsByProject
+
+List all authentication tokens for a project.
+
+```typescript
+async listAuthenticationsByProject(projectReference: string): Promise<Authentication[]>
+```
+
+```typescript
+const tokens = await admin.listAuthenticationsByProject('my-app');
+```
+
+### updateAuthentication
+
+Update authentication details.
+
+```typescript
+async updateAuthentication(id: string, data: UpdateAuthenticationRequest): Promise<Authentication>
+```
+
+```typescript
+const updated = await admin.updateAuthentication('auth-123', {
+  is_active: false, // Revoke access
+  description: 'Deactivated - security incident'
+});
+```
+
+### deleteAuthentication
+
+Delete an authentication token.
+
+```typescript
+async deleteAuthentication(id: string): Promise<void>
+```
+
+```typescript
+await admin.deleteAuthentication('auth-123');
+```
+
+### introspect
+
+Validate and inspect a token.
+
+```typescript
+async introspect(token: string): Promise<IntrospectResponse>
+```
+
+```typescript
+const result = await admin.introspect('bearer-token');
+if (result.active) {
+  console.log('Token is valid');
+  console.log('Expires at:', new Date(result.exp! * 1000));
+} else {
+  console.log('Token is invalid or expired');
+}
+```
+
+**Response:**
+
+```typescript
+interface IntrospectResponse {
+  active: boolean;
+  exp?: number; // Unix timestamp
+}
+```
+
+## Environment Management
+
+### createEnvironment
+
+Create a deployment environment.
+
+```typescript
+async createEnvironment(data: CreateEnvironmentRequest): Promise<Environment>
+```
+
+```typescript
+const env = await admin.createEnvironment({
+  id: 'production',
+  label: 'Production',
+  region: 'us-east-1',
+  api_base_url: 'https://api.weapon-x.io',
+  api_key: 'prod-api-key'
+});
+```
+
+### getEnvironment
+
+Retrieve environment by ID.
+
+```typescript
+async getEnvironment(id: string): Promise<Environment>
+```
+
+```typescript
+const env = await admin.getEnvironment('production');
+```
+
+### listEnvironments
+
+List all environments.
+
+```typescript
+async listEnvironments(token: string): Promise<Environment[]>
+```
+
+```typescript
+const environments = await admin.listEnvironments('bearer-token');
+```
+
+### updateEnvironment
+
+Update environment configuration.
+
+```typescript
+async updateEnvironment(id: string, data: UpdateEnvironmentRequest): Promise<Environment>
+```
+
+```typescript
+const updated = await admin.updateEnvironment('production', {
+  api_base_url: 'https://new-api.weapon-x.io'
+});
+```
+
+### deleteEnvironment
+
+Delete an environment.
+
+```typescript
+async deleteEnvironment(id: string): Promise<void>
+```
+
+```typescript
+await admin.deleteEnvironment('staging');
+```
+
+## Complete Example
+
+```typescript
+import { AdminClient } from 'weapon-x-sdk';
+
+const admin = new AdminClient({
+  baseUrl: 'https://api.weapon-x.io',
+  headers: {
+    Authorization: 'Bearer admin-key'
+  }
+});
+
+// 1. Create a project
+const project = await admin.createProject({
+  reference: 'ecommerce',
+  name: 'E-Commerce Platform'
+});
+
+// 2. Create a role
+const role = await admin.createRole({
+  name: 'App Service',
+  permissions: ['read:configs', 'evaluate:configs']
+});
+
+// 3. Create authentication
+const auth = await admin.createAuthentication({
+  project_reference: 'ecommerce',
+  role_id: role.id,
+  secret_key: 'secure-generated-key',
+  email: 'service@ecommerce.com',
+  description: 'Backend service credentials'
+});
+
+// 4. Create a feature flag
+const flag = await admin.createConfig({
+  project_reference: 'ecommerce',
+  key: 'checkout-v2',
+  description: 'New checkout flow',
+  type: 'BOOLEAN',
+  is_active: true,
+  default_value: false
+});
+
+// 5. Add a rule for premium users
+const rule = await admin.assignRule('checkout-v2', {
+  project_reference: 'ecommerce',
+  name: 'Premium users only',
+  return_value: true,
+  conditions: [
+    {
+      attribute: 'subscription_tier',
+      operator: 'EQUALS',
+      value: 'premium'
+    }
+  ],
+  rollout_percentage: 50 // 50% gradual rollout
+});
+
+console.log('Setup complete!');
+```
+
+## Type Definitions
+
+### Config
+
+```typescript
+interface Config {
+  id: string;
+  project_reference: string;
+  key: string;
+  description: string;
+  type: 'BOOLEAN' | 'JSON' | 'STRING' | 'SECRET';
+  is_active: boolean;
+  default_value: unknown;
+  validation_schema: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+  rules?: Rule[];
+}
+```
+
+### Rule
+
+```typescript
+interface Rule {
+  id: string;
+  configuration_id: string;
+  name: string;
+  conditions: Condition[];
+  return_value: unknown;
+  priority: number;
+  rollout_percentage: number;
+  created_at: string;
+  updated_at: string;
+}
+```
+
+### Project
+
+```typescript
+interface Project {
+  reference: string;
+  name: string;
+  created_at: string;
+  updated_at: string;
+  configurations?: Config[];
+  authentications?: Authentication[];
+}
+```
+
+### Role
+
+```typescript
+interface Role {
+  id: string;
+  name: string;
+  permissions: string[];
+  created_at: string;
+  updated_at: string;
+}
+```
+
+### Authentication
+
+```typescript
+interface Authentication {
+  id: string;
+  project_reference: string;
+  role_id: string;
+  secret_key: string;
+  email: string;
+  description: string;
+  is_active: boolean;
+  expiration_date: string | null;
+  created_at: string;
+  updated_at: string;
+  removed_at: string | null;
+  role?: Role;
+}
+```
+
+### Environment
+
+```typescript
+interface Environment {
+  id: string;
+  label: string;
+  region: string;
+  api_base_url: string;
+  api_key: string;
+  created_at: string;
+  updated_at: string;
+}
+```

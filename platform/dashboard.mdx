@@ -1,0 +1,220 @@
+---
+title: 'Dashboard'
+description: 'Navigate and manage your Weapon-X projects through the web UI'
+---
+
+## Overview
+
+The Weapon-X dashboard provides a centralized interface for managing your feature flag configurations, projects, and team access. Use the dashboard to monitor configuration changes, manage API tokens, and organize your feature flags across multiple projects and environments.
+
+## Key Features
+
+<CardGroup cols={2}>
+  <Card title="Project Management" icon="folder-tree">
+    View and organize all your projects in one place
+  </Card>
+  <Card title="Configuration Overview" icon="sliders">
+    Monitor active feature flags and their current states
+  </Card>
+  <Card title="Team Access" icon="users">
+    Manage authentication tokens and role assignments
+  </Card>
+  <Card title="Audit Trail" icon="clock-rotate-left">
+    Track all changes to your configurations
+  </Card>
+</CardGroup>
+
+## Projects
+
+Projects are the top-level organizational unit in Weapon-X. Each project contains:
+
+- **Configurations**: Feature flags and settings
+- **Authentication Tokens**: API keys for accessing the project
+- **Audit Logs**: Historical record of all changes
+
+### Project Structure
+
+```typescript
+{
+  reference: string;        // Unique project identifier
+  name: string;            // Display name
+  environment_id?: string; // Optional environment assignment
+  created_at: Date;
+  updated_at: Date;
+}
+```
+
+### Viewing Projects
+
+Access the projects list from the main dashboard. Each project card displays:
+
+- Project name and reference
+- Number of active configurations
+- Environment assignment (if applicable)
+- Last updated timestamp
+
+<Info>
+  **Project Reference** is used in API calls to identify which project you're working with.
+</Info>
+
+## Configurations
+
+The dashboard provides an overview of all configurations within a project:
+
+### Configuration Types
+
+<AccordionGroup>
+  <Accordion title="BOOLEAN" icon="toggle-on">
+    Simple true/false flags for enabling or disabling features
+  </Accordion>
+  
+  <Accordion title="STRING" icon="text">
+    Text values for configuration settings like API endpoints or messages
+  </Accordion>
+  
+  <Accordion title="JSON" icon="brackets-curly">
+    Complex structured data for advanced configuration needs
+  </Accordion>
+  
+  <Accordion title="SECRET" icon="key">
+    Encrypted values for sensitive data like API keys or passwords
+  </Accordion>
+</AccordionGroup>
+
+### Configuration Status
+
+Each configuration shows:
+
+- **Active/Inactive**: Whether the configuration is currently being evaluated
+- **Default Value**: The fallback value when no rules match
+- **Rules Count**: Number of conditional rules attached
+- **Last Modified**: Timestamp of the most recent change
+
+<Warning>
+  Deactivating a configuration (`is_active: false`) will always return the default value, regardless of rules.
+</Warning>
+
+## Environments
+
+Environments allow you to organize projects by deployment stage or region:
+
+```typescript
+{
+  id: string;           // Environment identifier (e.g., "production", "staging")
+  label: string;        // Display name
+  region: string;       // Geographic region
+  api_base_url: string; // API endpoint for this environment
+  api_key: string;      // Master API key for environment access
+}
+```
+
+### Common Environment Setup
+
+<Steps>
+  <Step title="Create Environments">
+    Set up environments for each stage: development, staging, production
+  </Step>
+  
+  <Step title="Assign Projects">
+    Associate projects with their corresponding environment
+  </Step>
+  
+  <Step title="Configure Access">
+    Generate environment-specific API keys for secure access
+  </Step>
+</Steps>
+
+## Dashboard Navigation
+
+### Main Navigation
+
+<Tabs>
+  <Tab title="Projects">
+    View all projects, create new ones, and access project details
+  </Tab>
+  
+  <Tab title="Configurations">
+    Browse and manage feature flags across all projects
+  </Tab>
+  
+  <Tab title="Tokens">
+    Manage API authentication tokens and access credentials
+  </Tab>
+  
+  <Tab title="Roles">
+    Configure role-based access control and permissions
+  </Tab>
+  
+  <Tab title="Audit Logs">
+    Review all changes and access history
+  </Tab>
+</Tabs>
+
+## Quick Actions
+
+Common tasks available from the dashboard:
+
+<CardGroup cols={2}>
+  <Card title="Create Project" icon="plus">
+    ```bash
+    POST /v1/admin/projects
+    ```
+    Requires `projects:write` permission
+  </Card>
+  
+  <Card title="Add Configuration" icon="flag">
+    ```bash
+    POST /v1/admin/configs
+    ```
+    Requires `configs:write` permission
+  </Card>
+  
+  <Card title="Generate Token" icon="key">
+    ```bash
+    POST /v1/admin/authentications
+    ```
+    Requires `authentications:write` permission
+  </Card>
+  
+  <Card title="Create Role" icon="shield">
+    ```bash
+    POST /v1/admin/roles
+    ```
+    Requires `roles:write` permission
+  </Card>
+</CardGroup>
+
+## Search and Filtering
+
+The dashboard supports filtering and searching across:
+
+- **Projects**: Filter by environment or search by name/reference
+- **Configurations**: Filter by type, active status, or project
+- **Tokens**: Filter by project, role, or expiration status
+- **Audit Logs**: Filter by action type, entity, or date range
+
+<Tip>
+  Use keyboard shortcuts for faster navigation:
+  - `Cmd/Ctrl + K`: Quick search
+  - `Cmd/Ctrl + P`: Project switcher
+</Tip>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Authentication" icon="key" href="/platform/authentication">
+    Learn how to generate and manage API tokens
+  </Card>
+  
+  <Card title="Roles & Permissions" icon="shield" href="/platform/roles-permissions">
+    Configure access control for your team
+  </Card>
+  
+  <Card title="Audit Logs" icon="clock-rotate-left" href="/platform/audit-logs">
+    Track changes and maintain compliance
+  </Card>
+  
+  <Card title="API Reference" icon="code" href="/api-reference">
+    Explore the complete API documentation
+  </Card>
+</CardGroup>

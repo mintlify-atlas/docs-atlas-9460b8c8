@@ -1,0 +1,599 @@
+---
+title: 'Rules'
+description: 'Define conditional logic for dynamic configuration evaluation'
+icon: 'code-branch'
+---
+
+## Overview
+
+Rules enable dynamic configuration values based on context. Each rule contains conditions that are evaluated against user attributes, and when all conditions match, the rule's return value is used instead of the configuration's default value.
+
+<Info>
+Rules are the key to personalization, A/B testing, gradual rollouts, and contextual feature flags.
+</Info>
+
+## Data Model
+
+```typescript
+interface Rule {
+  id: string;                  // UUID
+  configuration_id: string;    // Parent configuration UUID
+  name: string;                // Human-readable name
+  conditions: Condition[];     // Array of conditions (AND logic)
+  return_value: unknown;       // Value to return when matched
+  priority: number;            // Evaluation order (higher = first)
+  rollout_percentage: number;  // 0-100, gradual rollout
+  created_at: string;          // ISO 8601 timestamp
+  updated_at: string;          // ISO 8601 timestamp
+}
+
+interface Condition {
+  attribute: string;           // Context attribute to check
+  operator: Operator;          // Comparison operator
+  value: string | string[];    // Value(s) to compare against
+}
+
+type Operator =
+  | 'EQUALS'          // Exact match
+  | 'NOT_EQUALS'      // Not equal
+  | 'IN'              // Value in array
+  | 'NOT_IN'          // Value not in array
+  | 'CONTAINS'        // String contains substring
+  | 'GREATER_THAN'    // Numeric comparison
+  | 'LESS_THAN'       // Numeric comparison
+  | 'REGEX';          // Regular expression match
+```
+
+## Conditions
+
+Conditions are the building blocks of rules. All conditions in a rule must match (AND logic) for the rule to apply.
+
+### Condition Operators
+
+#### EQUALS - Exact Match
+
+```typescript
+{
+  attribute: 'user_tier',
+  operator: 'EQUALS',
+  value: 'premium'
+}
+// Matches: user_tier === 'premium'
+```
+
+#### NOT_EQUALS - Exclusion
+
+```typescript
+{
+  attribute: 'user_tier',
+  operator: 'NOT_EQUALS',
+  value: 'free'
+}
+// Matches: user_tier !== 'free'
+```
+
+#### IN - Multiple Values
+
+```typescript
+{
+  attribute: 'country',
+  operator: 'IN',
+  value: ['US', 'CA', 'MX']
+}
+// Matches: country in ['US', 'CA', 'MX']
+```
+
+<Note>
+For IN and NOT_IN operators, the value can be an array or a comma-separated string: `['US', 'CA']` or `'US,CA'`
+</Note>
+
+#### NOT_IN - Exclusion List
+
+```typescript
+{
+  attribute: 'country',
+  operator: 'NOT_IN',
+  value: ['CN', 'RU']
+}
+// Matches: country not in ['CN', 'RU']
+```
+
+#### CONTAINS - Substring Match
+
+```typescript
+{
+  attribute: 'email',
+  operator: 'CONTAINS',
+  value: '@company.com'
+}
+// Matches: email.includes('@company.com')
+```
+
+#### GREATER_THAN / LESS_THAN - Numeric
+
+```typescript
+{
+  attribute: 'account_age_days',
+  operator: 'GREATER_THAN',
+  value: '30'
+}
+// Matches: account_age_days > 30
+
+{
+  attribute: 'user_score',
+  operator: 'LESS_THAN',
+  value: '100'
+}
+// Matches: user_score < 100
+```
+
+<Warning>
+Numeric values must be passed as strings in the condition, but are parsed as numbers during evaluation.
+</Warning>
+
+#### REGEX - Pattern Matching
+
+```typescript
+{
+  attribute: 'email',
+  operator: 'REGEX',
+  value: '^[a-zA-Z0-9._%+-]+@company\\.com$'
+}
+// Matches: /^[a-zA-Z0-9._%+-]+@company\.com$/.test(email)
+```
+
+## Creating Rules
+
+Use the Admin SDK to assign rules to configurations:
+
+```typescript
+import { AdminClient } from '@weapon-x/sdk';
+
+const admin = new AdminClient({
+  baseUrl: 'https://api.weapon-x.io',
+  headers: { Authorization: 'Bearer YOUR_TOKEN' }
+});
+
+// Create a rule for premium users
+const rule = await admin.assignRule('premium_features_enabled', {
+  project_reference: 'my-app-prod',
+  name: 'Enable for premium users in US',
+  conditions: [
+    { attribute: 'user_tier', operator: 'EQUALS', value: 'premium' },
+    { attribute: 'country', operator: 'EQUALS', value: 'US' }
+  ],
+  return_value: true,
+  rollout_percentage: 100
+});
+
+console.log(`Created rule: ${rule.id}`);
+```
+
+## Multiple Conditions (AND Logic)
+
+All conditions in a rule must match:
+
+```typescript
+await admin.assignRule('special_pricing', {
+  project_reference: 'my-app-prod',
+  name: 'Special pricing for enterprise customers',
+  conditions: [
+    { attribute: 'user_tier', operator: 'EQUALS', value: 'enterprise' },
+    { attribute: 'account_age_days', operator: 'GREATER_THAN', value: '365' },
+    { attribute: 'country', operator: 'IN', value: ['US', 'CA', 'UK'] },
+    { attribute: 'email', operator: 'NOT_CONTAINS', value: '+test' }
+  ],
+  return_value: { discount: 0.2, currency: 'USD' }
+});
+
+// This rule matches ONLY when:
+// - user_tier === 'enterprise' AND
+// - account_age_days > 365 AND
+// - country in ['US', 'CA', 'UK'] AND
+// - email does not contain '+test'
+```
+
+<Info>
+For OR logic, create multiple rules. The first matching rule (by priority) wins.
+</Info>
+
+## Return Values
+
+The `return_value` must match the configuration's type:
+
+```typescript
+// BOOLEAN configuration
+{
+  type: 'BOOLEAN',
+  default_value: false,
+  rules: [
+    { return_value: true }  // Must be boolean
+  ]
+}
+
+// STRING configuration
+{
+  type: 'STRING',
+  default_value: 'default message',
+  rules: [
+    { return_value: 'custom message' }  // Must be string
+  ]
+}
+
+// JSON configuration
+{
+  type: 'JSON',
+  default_value: { tier: 'basic' },
+  rules: [
+    { return_value: { tier: 'premium', features: ['a', 'b'] } }  // Must be object/array
+  ]
+}
+
+// SECRET configuration
+{
+  type: 'SECRET',
+  default_value: 'default_secret',
+  rules: [
+    { return_value: 'override_secret' }  // Must be string
+  ]
+}
+```
+
+## Priority
+
+When multiple rules match, the rule with the **highest priority** wins:
+
+```typescript
+// Create rules with different priorities
+await admin.assignRule('welcome_message', {
+  project_reference: 'my-app-prod',
+  name: 'VIP users',
+  conditions: [{ attribute: 'user_tier', operator: 'EQUALS', value: 'vip' }],
+  return_value: 'Welcome, VIP!',
+  priority: 100  // Highest priority
+});
+
+await admin.assignRule('welcome_message', {
+  project_reference: 'my-app-prod',
+  name: 'Premium users',
+  conditions: [{ attribute: 'user_tier', operator: 'EQUALS', value: 'premium' }],
+  return_value: 'Welcome, Premium!',
+  priority: 50
+});
+
+await admin.assignRule('welcome_message', {
+  project_reference: 'my-app-prod',
+  name: 'All users',
+  conditions: [],  // No conditions = always matches
+  return_value: 'Welcome!',
+  priority: 0  // Lowest priority (fallback)
+});
+```
+
+**Evaluation order:**
+1. Check "VIP users" rule (priority: 100)
+2. Check "Premium users" rule (priority: 50)
+3. Check "All users" rule (priority: 0)
+4. Use default value if no rules match
+
+<Note>
+The default priority is `0`. Higher numbers = higher priority. Negative priorities are allowed.
+</Note>
+
+## Rollout Percentage
+
+Gradually roll out features to a percentage of users:
+
+```typescript
+await admin.assignRule('new_ui_enabled', {
+  project_reference: 'my-app-prod',
+  name: 'New UI rollout - 25% of users',
+  conditions: [],  // No conditions, relies on rollout
+  return_value: true,
+  rollout_percentage: 25  // Only 25% of users get this
+});
+```
+
+### How Rollout Works
+
+1. An `identifier` is required for deterministic rollouts:
+   ```typescript
+   await client.evaluate({
+     keys: ['new_ui_enabled'],
+     filters: {},
+     identifier: 'user-12345'  // Stable user ID
+   });
+   ```
+
+2. The identifier and rule ID are hashed using SHA-256
+3. The hash is converted to a number between 0-99
+4. If the hash is less than `rollout_percentage`, the rule matches
+5. Same identifier always gets the same result (deterministic)
+
+```typescript
+// From sync-evaluation-client.ts:102-104
+computeRolloutHash(identifier: string, ruleId: string): number {
+  return computeRolloutHash(identifier, ruleId);
+}
+
+// Used in evaluation:
+if (rollout < 100) {
+  const identifier = String(data.filters.identifier || data.identifier || '');
+  const hash = this.computeRolloutHash(identifier, rule.id);
+  if (hash >= rollout) {
+    continue;  // User not in rollout
+  }
+}
+```
+
+<Warning>
+Without an `identifier`, rollout percentage cannot be deterministic. Always provide a stable user ID for consistent rollouts.
+</Warning>
+
+### Rollout Strategies
+
+**Gradual rollout:**
+```typescript
+// Week 1: 10%
+rollout_percentage: 10
+
+// Week 2: 25%
+rollout_percentage: 25
+
+// Week 3: 50%
+rollout_percentage: 50
+
+// Week 4: 100% (full release)
+rollout_percentage: 100
+```
+
+**Canary deployments:**
+```typescript
+// Rule 1: Internal users (100%)
+{
+  conditions: [{ attribute: 'email', operator: 'CONTAINS', value: '@company.com' }],
+  rollout_percentage: 100,
+  priority: 100
+}
+
+// Rule 2: External users (5% canary)
+{
+  conditions: [],
+  rollout_percentage: 5,
+  priority: 0
+}
+```
+
+## Evaluation Flow
+
+When a configuration is evaluated:
+
+1. Check if configuration is active (`is_active: true`)
+   - If false → return `{ value: null, reason: 'DISABLED' }`
+
+2. Sort rules by priority (highest first)
+
+3. For each rule:
+   - Check if all conditions match
+   - If yes, check rollout percentage
+   - If user is in rollout → return `{ value: rule.return_value, reason: 'MATCH' }`
+
+4. If no rules match → return `{ value: default_value, reason: 'FALLBACK' }`
+
+```typescript
+// Evaluation result types
+type EvaluationReason = 
+  | 'MATCH'              // Rule matched
+  | 'FALLBACK'           // No rules matched, using default
+  | 'DISABLED'           // Configuration is inactive
+  | 'ROLLOUT_EXCLUDED';  // User not in rollout percentage
+```
+
+## Real-World Examples
+
+### Example 1: A/B Testing
+
+```typescript
+// Configuration: Which algorithm to use
+await admin.createConfig({
+  project_reference: 'my-app-prod',
+  key: 'recommendation_algorithm',
+  type: 'STRING',
+  is_active: true,
+  default_value: 'v1'
+});
+
+// Rule 1: 50% get new algorithm
+await admin.assignRule('recommendation_algorithm', {
+  project_reference: 'my-app-prod',
+  name: 'A/B Test - Algorithm v2',
+  conditions: [],
+  return_value: 'v2',
+  rollout_percentage: 50,
+  priority: 10
+});
+
+// Evaluate
+const result = await client.evaluate({
+  keys: ['recommendation_algorithm'],
+  filters: {},
+  identifier: 'user-12345'
+});
+
+console.log(result.data.recommendation_algorithm.value);
+// 50% chance: 'v2'
+// 50% chance: 'v1'
+```
+
+### Example 2: Regional Features
+
+```typescript
+// Enable feature only in specific countries
+await admin.assignRule('live_streaming_enabled', {
+  project_reference: 'my-app-prod',
+  name: 'Enable in US, CA, UK',
+  conditions: [
+    { attribute: 'country', operator: 'IN', value: ['US', 'CA', 'UK'] }
+  ],
+  return_value: true,
+  rollout_percentage: 100
+});
+```
+
+### Example 3: Tiered Pricing
+
+```typescript
+// Different pricing for different tiers
+await admin.createConfig({
+  project_reference: 'my-app-prod',
+  key: 'api_rate_limit',
+  type: 'JSON',
+  is_active: true,
+  default_value: { requests_per_hour: 100 }
+});
+
+// Premium tier
+await admin.assignRule('api_rate_limit', {
+  project_reference: 'my-app-prod',
+  name: 'Premium tier rate limit',
+  conditions: [
+    { attribute: 'user_tier', operator: 'EQUALS', value: 'premium' }
+  ],
+  return_value: { requests_per_hour: 10000 },
+  priority: 50
+});
+
+// Enterprise tier
+await admin.assignRule('api_rate_limit', {
+  project_reference: 'my-app-prod',
+  name: 'Enterprise tier rate limit',
+  conditions: [
+    { attribute: 'user_tier', operator: 'EQUALS', value: 'enterprise' }
+  ],
+  return_value: { requests_per_hour: 100000 },
+  priority: 100
+});
+```
+
+### Example 4: Beta Testers
+
+```typescript
+// Enable beta features for specific users
+await admin.assignRule('beta_features_enabled', {
+  project_reference: 'my-app-prod',
+  name: 'Beta testers',
+  conditions: [
+    { attribute: 'user_id', operator: 'IN', value: ['user-1', 'user-2', 'user-3'] }
+  ],
+  return_value: true,
+  priority: 100
+});
+
+// Or by email domain
+await admin.assignRule('beta_features_enabled', {
+  project_reference: 'my-app-prod',
+  name: 'Internal employees',
+  conditions: [
+    { attribute: 'email', operator: 'CONTAINS', value: '@company.com' }
+  ],
+  return_value: true,
+  priority: 90
+});
+```
+
+## Database Schema
+
+```prisma
+model Rule {
+  id                   String        @id @default(uuid()) @db.Uuid
+  configuration_id     String        @db.Uuid
+  name                 String        @db.VarChar(255)
+  conditions           Json          // Array of Condition objects
+  return_value         Json          // Any type matching config
+  priority             Int           @default(0)
+  rollout_percentage   Int           @default(100)
+  created_at           DateTime      @default(now()) @db.Timestamptz
+  updated_at           DateTime      @updatedAt @db.Timestamptz
+
+  configuration Configuration @relation(
+    fields: [configuration_id], 
+    references: [id], 
+    onDelete: Cascade
+  )
+
+  @@index([configuration_id])
+  @@map("rules")
+}
+```
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Use descriptive rule names">
+    Names should explain what the rule does and why:
+    - ✅ Good: "Enable new checkout for premium users in US"
+    - ✅ Good: "A/B Test: Algorithm v2 - 50% rollout"
+    - ❌ Bad: "Rule 1", "Test", "New rule"
+  </Accordion>
+  
+  <Accordion title="Set priorities explicitly">
+    Don't rely on default priorities. Be explicit about evaluation order:
+    ```typescript
+    // Clear priority hierarchy
+    { name: 'VIP override', priority: 100 }
+    { name: 'Premium users', priority: 50 }
+    { name: 'All users', priority: 0 }
+    ```
+  </Accordion>
+  
+  <Accordion title="Test rollouts with internal users first">
+    Use high-priority rules for internal testing:
+    ```typescript
+    // Priority 100: Internal users get 100%
+    { 
+      conditions: [{ attribute: 'email', operator: 'CONTAINS', value: '@company.com' }],
+      rollout_percentage: 100,
+      priority: 100
+    }
+    
+    // Priority 0: External users get 10%
+    {
+      conditions: [],
+      rollout_percentage: 10,
+      priority: 0
+    }
+    ```
+  </Accordion>
+  
+  <Accordion title="Keep conditions simple">
+    Complex rules are hard to debug. Consider breaking into multiple rules:
+    - ✅ Good: 2-3 conditions per rule
+    - ⚠️ Caution: 4-5 conditions per rule
+    - ❌ Bad: 6+ conditions per rule
+  </Accordion>
+  
+  <Accordion title="Always provide a stable identifier for rollouts">
+    Use a consistent user ID for deterministic rollouts:
+    ```typescript
+    // Good: User ID from database
+    identifier: user.id
+    
+    // Good: Session ID for anonymous users
+    identifier: sessionId
+    
+    // Bad: Random values
+    identifier: Math.random().toString()
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Evaluation Modes" icon="bolt" href="/concepts/evaluation-modes">
+    Learn how rules are evaluated in remote vs. sync mode
+  </Card>
+  <Card title="Admin SDK" icon="code" href="/sdk/admin-client">
+    Explore the full Admin SDK API for managing rules
+  </Card>
+</CardGroup>

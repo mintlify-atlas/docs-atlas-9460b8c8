@@ -1,0 +1,211 @@
+---
+title: Installation
+description: Install and configure the Weapon-X SDK for your application
+---
+
+## Package Installation
+
+Install the Weapon-X SDK using your preferred package manager:
+
+<CodeGroup>
+```bash npm
+npm install weapon-x-sdk
+```
+
+```bash yarn
+yarn add weapon-x-sdk
+```
+
+```bash pnpm
+pnpm add weapon-x-sdk
+```
+
+```bash bun
+bun add weapon-x-sdk
+```
+</CodeGroup>
+
+## Package Information
+
+The SDK is published as `weapon-x-sdk` on npm with full TypeScript support:
+
+- **CommonJS**: `dist/index.js`
+- **ES Modules**: `dist/index.mjs`
+- **TypeScript Types**: `dist/index.d.ts`
+
+## Import Options
+
+The SDK exports three main clients and associated types:
+
+```typescript
+import {
+  AdminClient,
+  EvaluationClient,
+  SyncEvaluationClient,
+  WeaponXApiError,
+  type WeaponXClientOptions,
+  type Config,
+  type Rule,
+  type Project,
+  type Environment,
+  type Authentication,
+  type EvaluateRequest,
+  type EvaluateResponse,
+} from 'weapon-x-sdk';
+```
+
+## Client Configuration
+
+All clients require a `WeaponXClientOptions` configuration object:
+
+```typescript
+interface WeaponXClientOptions {
+  /** Base URL of the Weapon-X API (e.g. "http://localhost:3001") */
+  baseUrl: string;
+  /** Optional headers merged into every request (e.g. Authorization) */
+  headers?: Record<string, string>;
+}
+```
+
+### Basic Configuration
+
+<Tabs>
+  <Tab title="With Authentication">
+    ```typescript
+    const options: WeaponXClientOptions = {
+      baseUrl: 'https://api.weapon-x.io',
+      headers: {
+        Authorization: 'Bearer your-api-key-here'
+      }
+    };
+    ```
+  </Tab>
+  
+  <Tab title="Local Development">
+    ```typescript
+    const options: WeaponXClientOptions = {
+      baseUrl: 'http://localhost:3001',
+      headers: {
+        Authorization: 'Bearer dev-api-key'
+      }
+    };
+    ```
+  </Tab>
+  
+  <Tab title="Custom Headers">
+    ```typescript
+    const options: WeaponXClientOptions = {
+      baseUrl: 'https://api.weapon-x.io',
+      headers: {
+        Authorization: 'Bearer your-api-key',
+        'X-Custom-Header': 'custom-value',
+        'X-Request-ID': 'request-123'
+      }
+    };
+    ```
+  </Tab>
+</Tabs>
+
+## Initialize Clients
+
+Once you have your configuration, initialize the appropriate client:
+
+<Tabs>
+  <Tab title="AdminClient">
+    ```typescript
+    import { AdminClient } from 'weapon-x-sdk';
+
+    const admin = new AdminClient({
+      baseUrl: 'https://api.weapon-x.io',
+      headers: {
+        Authorization: 'Bearer admin-api-key'
+      }
+    });
+
+    // Now you can use admin operations
+    const project = await admin.createProject({
+      reference: 'my-app',
+      name: 'My Application'
+    });
+    ```
+  </Tab>
+  
+  <Tab title="EvaluationClient">
+    ```typescript
+    import { EvaluationClient } from 'weapon-x-sdk';
+
+    const evaluator = new EvaluationClient({
+      baseUrl: 'https://api.weapon-x.io',
+      headers: {
+        Authorization: 'Bearer eval-api-key'
+      }
+    });
+
+    // Evaluate feature flags remotely
+    const result = await evaluator.evaluate({
+      filters: { userId: '123', country: 'US' },
+      keys: ['feature-a', 'feature-b']
+    });
+    ```
+  </Tab>
+  
+  <Tab title="SyncEvaluationClient">
+    ```typescript
+    import { SyncEvaluationClient } from 'weapon-x-sdk';
+
+    // Singleton pattern - get or create instance
+    const syncClient = SyncEvaluationClient.getInstance({
+      baseUrl: 'https://api.weapon-x.io',
+      headers: {
+        Authorization: 'Bearer sync-api-key'
+      }
+    });
+
+    // Sync configurations once
+    await syncClient.sync('my-app');
+
+    // Then evaluate locally (no network calls)
+    const result = syncClient.evaluate({
+      filters: { userId: '123' },
+      keys: ['feature-a']
+    });
+    ```
+  </Tab>
+</Tabs>
+
+## Error Handling
+
+The SDK exports a custom error class for API errors:
+
+```typescript
+import { WeaponXApiError } from 'weapon-x-sdk';
+
+try {
+  const result = await admin.createProject({
+    reference: 'my-app',
+    name: 'My App'
+  });
+} catch (error) {
+  if (error instanceof WeaponXApiError) {
+    console.error('API Error:', error.message);
+    console.error('Status:', error.statusCode);
+    console.error('Details:', error.details);
+  } else {
+    console.error('Unexpected error:', error);
+  }
+}
+```
+
+## Next Steps
+
+<CardGroup cols={3}>
+  <Card title="AdminClient" icon="shield-halved" href="/sdk/admin-client">
+    Manage projects, configs, rules, and authentication
+  </Card>
+  <Card title="EvaluationClient" icon="cloud" href="/sdk/evaluation-client">
+    Remote feature flag evaluation
+  </Card>
+  <Card title="SyncEvaluationClient" icon="database" href="/sdk/sync-evaluation-client">
+    Local evaluation with sync cache
+  </Card>
+</CardGroup>

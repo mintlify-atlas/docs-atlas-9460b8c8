@@ -1,0 +1,193 @@
+---
+title: Update Authentication Token
+api: PUT /v1/admin/authentications/:id
+description: Update an existing authentication token
+---
+
+## Authentication
+
+Requires a token with `authentications:write` permission.
+
+## Path Parameters
+
+<ParamField path="id" type="string" required>
+  The unique UUID of the authentication token to update.
+</ParamField>
+
+## Request Body
+
+At least one field must be provided.
+
+<ParamField body="description" type="string">
+  New description (max 500 characters).
+</ParamField>
+
+<ParamField body="is_active" type="boolean">
+  Update active status. Set to `false` to disable the token.
+</ParamField>
+
+<ParamField body="expiration_date" type="string">
+  New ISO 8601 expiration date, or `null` to remove expiration.
+</ParamField>
+
+<ParamField body="role_id" type="string">
+  Change the associated role.
+</ParamField>
+
+<ParamField body="email" type="string">
+  Update the associated email (max 255 characters).
+</ParamField>
+
+## Response
+
+<ResponseField name="data" type="object">
+  The updated authentication token object.
+  
+  <ResponseField name="id" type="string">
+    Unique token ID (UUID).
+  </ResponseField>
+  
+  <ResponseField name="project_reference" type="string">
+    Project reference.
+  </ResponseField>
+  
+  <ResponseField name="role_id" type="string">
+    Updated role ID.
+  </ResponseField>
+  
+  <ResponseField name="secret_key" type="string">
+    The token secret (unchanged).
+  </ResponseField>
+  
+  <ResponseField name="email" type="string">
+    Updated email.
+  </ResponseField>
+  
+  <ResponseField name="description" type="string">
+    Updated description.
+  </ResponseField>
+  
+  <ResponseField name="is_active" type="boolean">
+    Updated active status.
+  </ResponseField>
+  
+  <ResponseField name="expiration_date" type="string | null">
+    Updated expiration date or null.
+  </ResponseField>
+  
+  <ResponseField name="created_at" type="string">
+    ISO 8601 timestamp of creation.
+  </ResponseField>
+  
+  <ResponseField name="updated_at" type="string">
+    ISO 8601 timestamp of last update.
+  </ResponseField>
+  
+  <ResponseField name="removed_at" type="string | null">
+    Soft deletion timestamp or null.
+  </ResponseField>
+</ResponseField>
+
+## Example Request
+
+```bash
+curl -X PUT https://api.weaponx.io/v1/admin/authentications/950e8400-e29b-41d4-a716-446655440004 \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "is_active": false,
+    "description": "Production API token - DISABLED for rotation"
+  }'
+```
+
+## Example Response
+
+```json
+{
+  "data": {
+    "id": "950e8400-e29b-41d4-a716-446655440004",
+    "project_reference": "my-app",
+    "role_id": "750e8400-e29b-41d4-a716-446655440002",
+    "secret_key": "sk_prod_abc123def456...",
+    "email": "developer@company.com",
+    "description": "Production API token - DISABLED for rotation",
+    "is_active": false,
+    "expiration_date": "2026-12-31T23:59:59Z",
+    "created_at": "2026-03-05T10:30:00Z",
+    "updated_at": "2026-03-05T11:45:00Z",
+    "removed_at": null
+  }
+}
+```
+
+## Common Use Cases
+
+### Disable a Token
+
+```bash
+curl -X PUT https://api.weaponx.io/v1/admin/authentications/TOKEN_ID \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"is_active": false}'
+```
+
+### Extend Expiration
+
+```bash
+curl -X PUT https://api.weaponx.io/v1/admin/authentications/TOKEN_ID \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"expiration_date": "2027-12-31T23:59:59Z"}'
+```
+
+### Change Role
+
+```bash
+curl -X PUT https://api.weaponx.io/v1/admin/authentications/TOKEN_ID \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"role_id": "NEW_ROLE_UUID"}'
+```
+
+## Error Responses
+
+### 400 Bad Request
+
+```json
+{
+  "error": "Validation Error",
+  "details": [
+    {
+      "message": "At least one field must be provided",
+      "path": []
+    }
+  ]
+}
+```
+
+### 401 Unauthorized
+
+```json
+{
+  "error": "Unauthorized",
+  "message": "Invalid or missing authentication token"
+}
+```
+
+### 403 Forbidden
+
+```json
+{
+  "error": "Forbidden",
+  "message": "Insufficient permissions: authentications:write required"
+}
+```
+
+### 404 Not Found
+
+```json
+{
+  "error": "Not Found",
+  "message": "Authentication token not found"
+}
+```

@@ -1,0 +1,393 @@
+---
+title: 'Authentication'
+description: 'Manage API tokens, secret keys, and access credentials'
+---
+
+## Overview
+
+Weapon-X uses Bearer token authentication for all API requests. Each authentication token is associated with a project and role, determining what actions the token can perform.
+
+## Authentication Model
+
+Authentication tokens in Weapon-X are stored in the `Authentication` model:
+
+```typescript
+interface Authentication {
+  id: string;                 // Unique identifier (UUID)
+  project_reference: string;  // Associated project
+  role_id: string;           // Assigned role (determines permissions)
+  secret_key: string;        // The actual API token (unique)
+  email: string;             // Owner's email address
+  description: string;       // Token purpose or notes
+  is_active: boolean;        // Active/inactive status
+  expiration_date: Date | null; // Optional expiration
+  created_at: Date;
+  updated_at: Date;
+  removed_at: Date | null;   // Soft delete timestamp
+}
+```
+
+## Creating Authentication Tokens
+
+### API Request
+
+<CodeGroup>
+```bash cURL
+curl -X POST https://api.weapon-x.io/v1/admin/authentications \
+  -H "Authorization: Bearer YOUR_ADMIN_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "project_reference": "my-project",
+    "role_id": "550e8400-e29b-41d4-a716-446655440000",
+    "secret_key": "wxk_live_abcdef123456",
+    "email": "engineer@company.com",
+    "description": "Production API token for web app",
+    "is_active": true,
+    "expiration_date": "2026-12-31T23:59:59Z"
+  }'
+```
+
+```typescript TypeScript
+const response = await fetch('https://api.weapon-x.io/v1/admin/authentications', {
+  method: 'POST',
+  headers: {
+    'Authorization': 'Bearer YOUR_ADMIN_TOKEN',
+    'Content-Type': 'application/json'
+  },
+  body: JSON.stringify({
+    project_reference: 'my-project',
+    role_id: '550e8400-e29b-41d4-a716-446655440000',
+    secret_key: 'wxk_live_abcdef123456',
+    email: 'engineer@company.com',
+    description: 'Production API token for web app',
+    is_active: true,
+    expiration_date: '2026-12-31T23:59:59Z'
+  })
+});
+
+const { data } = await response.json();
+```
+</CodeGroup>
+
+<Warning>
+  **Secret Key Must Be Unique**: Each `secret_key` must be unique across all authentication records. The system will return a conflict error if you try to create a duplicate.
+</Warning>
+
+### Required Permissions
+
+To create authentication tokens, your token must have the `authentications:write` permission.
+
+## Token Format
+
+While Weapon-X doesn't enforce a specific token format, we recommend following this convention:
+
+```
+wxk_{environment}_{random_string}
+```
+
+**Examples:**
+- `wxk_live_A8f3mK9pQx2nL5vB7cD4wE6j`
+- `wxk_test_X2nR5tY8uA3sD9fG7hJ4kL1m`
+- `wxk_dev_P4wE7rT9yU2iO5pA8sD3fG6h`
+
+<Info>
+  Use a cryptographically secure random generator to create secret keys. Minimum recommended length is 32 characters.
+</Info>
+
+## Using Authentication Tokens
+
+Include your token in the `Authorization` header with the `Bearer` scheme:
+
+```bash
+Authorization: Bearer wxk_live_A8f3mK9pQx2nL5vB7cD4wE6j
+```
+
+### Example Request
+
+```bash
+curl -X POST https://api.weapon-x.io/v1/evaluate \
+  -H "Authorization: Bearer wxk_live_A8f3mK9pQx2nL5vB7cD4wE6j" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "keys": ["feature.new_dashboard"],
+    "filters": { "user_id": "123", "country": "US" }
+  }'
+```
+
+## Token Introspection
+
+Introspect a token to check its validity and expiration status:
+
+<CodeGroup>
+```bash cURL
+curl -X POST https://api.weapon-x.io/v1/auth/introspect \
+  -H "Authorization: Bearer wxk_live_A8f3mK9pQx2nL5vB7cD4wE6j"
+```
+
+```typescript TypeScript
+const response = await fetch('https://api.weapon-x.io/v1/auth/introspect', {
+  method: 'POST',
+  headers: {
+    'Authorization': 'Bearer wxk_live_A8f3mK9pQx2nL5vB7cD4wE6j'
+  }
+});
+
+const result = await response.json();
+```
+</CodeGroup>
+
+### Response Format
+
+```typescript
+interface IntrospectResult {
+  active: boolean;  // Whether the token is valid and active
+  exp?: number;     // Expiration timestamp (Unix time in seconds)
+}
+```
+
+**Example Responses:**
+
+<CodeGroup>
+```json Valid Token
+{
+  "active": true,
+  "exp": 1767225599
+}
+```
+
+```json Expired Token
+{
+  "active": false
+}
+```
+
+```json Inactive Token
+{
+  "active": false
+}
+```
+</CodeGroup>
+
+### Token Validation Logic
+
+The introspection endpoint in `/server/src/usecases/introspectAuthentication.usecase.ts:11` checks:
+
+1. **Token exists**: The secret key must match an authentication record
+2. **Active status**: `is_active` must be `true`
+3. **Not expired**: If `expiration_date` is set, it must be in the future
+
+```typescript
+if (!auth || !auth.is_active) {
+  return { active: false };
+}
+
+if (auth.expiration_date && new Date(auth.expiration_date) < new Date()) {
+  return { active: false };
+}
+```
+
+<Note>
+  Token introspection does **not** require authorization middleware. It validates the token provided in the request itself.
+</Note>
+
+## Managing Tokens
+
+### List Tokens by Project
+
+```bash
+GET /v1/admin/projects/{projectReference}/authentications
+```
+
+Returns all authentication tokens associated with a project.
+
+### Get Token Details
+
+```bash
+GET /v1/admin/authentications/{id}
+```
+
+Retrieve full details of a specific authentication token.
+
+### Update Token
+
+<CodeGroup>
+```bash Deactivate
+curl -X PUT https://api.weapon-x.io/v1/admin/authentications/{id} \
+  -H "Authorization: Bearer YOUR_ADMIN_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{ "is_active": false }'
+```
+
+```bash Update Expiration
+curl -X PUT https://api.weapon-x.io/v1/admin/authentications/{id} \
+  -H "Authorization: Bearer YOUR_ADMIN_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{ "expiration_date": "2027-12-31T23:59:59Z" }'
+```
+
+```bash Change Role
+curl -X PUT https://api.weapon-x.io/v1/admin/authentications/{id} \
+  -H "Authorization: Bearer YOUR_ADMIN_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{ "role_id": "new-role-uuid" }'
+```
+</CodeGroup>
+
+### Updatable Fields
+
+You can update these fields on an existing authentication token:
+
+- `description`: Update the token's purpose or notes
+- `is_active`: Activate or deactivate the token
+- `expiration_date`: Extend or set expiration
+- `role_id`: Change the assigned role
+- `email`: Update the owner's email
+
+### Delete Token
+
+```bash
+DELETE /v1/admin/authentications/{id}
+```
+
+Soft-deletes the authentication token by setting `removed_at`.
+
+<Warning>
+  Deleting a token is irreversible. Any applications using this token will immediately lose access.
+</Warning>
+
+## Token Lifecycle
+
+<Steps>
+  <Step title="Create">
+    Generate a new token with an assigned role and project
+  </Step>
+  
+  <Step title="Activate">
+    Token is active by default (`is_active: true`)
+  </Step>
+  
+  <Step title="Use">
+    Applications use the token to authenticate API requests
+  </Step>
+  
+  <Step title="Rotate (Optional)">
+    Create a new token and deactivate the old one for security
+  </Step>
+  
+  <Step title="Expire or Deactivate">
+    Token becomes invalid after expiration or manual deactivation
+  </Step>
+  
+  <Step title="Delete">
+    Permanently remove the token record
+  </Step>
+</Steps>
+
+## Security Best Practices
+
+<AccordionGroup>
+  <Accordion title="Use Expiration Dates" icon="calendar">
+    Set `expiration_date` for tokens that don't need indefinite access. This limits the impact of token compromise.
+  </Accordion>
+  
+  <Accordion title="Rotate Tokens Regularly" icon="rotate">
+    Implement token rotation policies, especially for production environments. Create a new token, update applications, then deactivate the old one.
+  </Accordion>
+  
+  <Accordion title="Principle of Least Privilege" icon="shield-halved">
+    Assign roles with only the permissions required for the token's purpose. Read-only tokens shouldn't have write permissions.
+  </Accordion>
+  
+  <Accordion title="Monitor Token Usage" icon="chart-line">
+    Use audit logs to track which tokens are accessing your API and what actions they perform.
+  </Accordion>
+  
+  <Accordion title="Secure Storage" icon="vault">
+    Never commit tokens to version control. Use environment variables or secret management systems.
+  </Accordion>
+  
+  <Accordion title="Deactivate Unused Tokens" icon="ban">
+    Regularly review and deactivate tokens that are no longer needed.
+  </Accordion>
+</AccordionGroup>
+
+## Authorization Flow
+
+The authorization middleware in `/server/src/middleware/authorization.ts:22` performs these checks:
+
+<Steps>
+  <Step title="Extract Token">
+    Parse the `Authorization: Bearer <token>` header
+  </Step>
+  
+  <Step title="Lookup Authentication">
+    Find the authentication record by `secret_key`
+  </Step>
+  
+  <Step title="Check Active">
+    Verify `is_active` is `true`
+  </Step>
+  
+  <Step title="Check Expiration">
+    If `expiration_date` exists, ensure it's in the future
+  </Step>
+  
+  <Step title="Verify Permissions">
+    Check that the token's role has all required permissions
+  </Step>
+  
+  <Step title="Attach to Request">
+    Store the authentication entity on `req.auth` for downstream use
+  </Step>
+</Steps>
+
+## Error Responses
+
+<ResponseField name="401 Unauthorized">
+  Token is missing, invalid, expired, or deactivated
+  
+  ```json
+  {
+    "error": "Unauthorized",
+    "message": "API key has expired."
+  }
+  ```
+</ResponseField>
+
+<ResponseField name="403 Forbidden">
+  Token is valid but lacks required permissions
+  
+  ```json
+  {
+    "error": "Forbidden",
+    "message": "Missing required permissions: configs:write"
+  }
+  ```
+</ResponseField>
+
+<ResponseField name="409 Conflict">
+  Attempting to create a token with a duplicate secret_key
+  
+  ```json
+  {
+    "error": "Conflict",
+    "message": "An authentication record with this secret key already exists."
+  }
+  ```
+</ResponseField>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Roles & Permissions" icon="shield" href="/platform/roles-permissions">
+    Learn how to configure roles and assign permissions
+  </Card>
+  
+  <Card title="Audit Logs" icon="clock-rotate-left" href="/platform/audit-logs">
+    Track authentication token usage and changes
+  </Card>
+  
+  <Card title="API Reference" icon="code" href="/api-reference">
+    Complete API documentation for authentication endpoints
+  </Card>
+</CardGroup>

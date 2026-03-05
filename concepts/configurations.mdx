@@ -1,0 +1,468 @@
+---
+title: 'Configurations'
+description: 'Define feature flags, settings, and secrets with type safety'
+icon: 'sliders'
+---
+
+## Overview
+
+Configurations are the core building blocks of Weapon-X. Each configuration represents a feature flag, application setting, or secret value that can be dynamically evaluated based on rules and conditions.
+
+<Info>
+Configurations support four types: BOOLEAN (feature flags), JSON (structured data), STRING (text values), and SECRET (encrypted values).
+</Info>
+
+## Data Model
+
+```typescript
+interface Config {
+  id: string;                          // UUID
+  project_reference: string;           // Parent project
+  key: string;                         // Unique key within project
+  description: string;                 // Human-readable description
+  type: ConfigType;                    // BOOLEAN | JSON | STRING | SECRET
+  is_active: boolean;                  // Enable/disable flag
+  default_value: unknown;              // Fallback value
+  validation_schema: Record<string, unknown>; // JSON Schema for validation
+  created_at: string;                  // ISO 8601 timestamp
+  updated_at: string;                  // ISO 8601 timestamp
+  rules?: Rule[];                      // Conditional rules
+}
+
+type ConfigType = 'BOOLEAN' | 'JSON' | 'STRING' | 'SECRET';
+```
+
+## Configuration Types
+
+### BOOLEAN - Feature Flags
+
+Boolean configurations are ideal for feature flags and on/off toggles:
+
+```typescript
+const featureFlag = await admin.createConfig({
+  project_reference: 'my-app-prod',
+  key: 'enable_dark_mode',
+  description: 'Enable dark mode theme',
+  type: 'BOOLEAN',
+  is_active: true,
+  default_value: false
+});
+```
+
+**Use cases:**
+- Feature flags: `enable_new_checkout`, `show_beta_features`
+- Kill switches: `disable_payment_gateway`, `emergency_mode`
+- A/B test toggles: `variant_a_enabled`, `use_new_algorithm`
+
+### JSON - Structured Data
+
+JSON configurations store complex objects and arrays:
+
+```typescript
+const jsonConfig = await admin.createConfig({
+  project_reference: 'my-app-prod',
+  key: 'pricing_tiers',
+  description: 'Product pricing configuration',
+  type: 'JSON',
+  is_active: true,
+  default_value: {
+    basic: { price: 9.99, features: ['feature1', 'feature2'] },
+    pro: { price: 29.99, features: ['feature1', 'feature2', 'feature3'] },
+    enterprise: { price: 99.99, features: ['all'] }
+  },
+  validation_schema: {
+    type: 'object',
+    properties: {
+      basic: { type: 'object' },
+      pro: { type: 'object' },
+      enterprise: { type: 'object' }
+    },
+    required: ['basic', 'pro', 'enterprise']
+  }
+});
+```
+
+**Use cases:**
+- Pricing tables: `pricing_tiers`, `discount_rules`
+- UI configurations: `theme_settings`, `layout_config`
+- Business rules: `approval_workflow`, `notification_templates`
+- Rate limits: `api_rate_limits`, `quota_configuration`
+
+### STRING - Text Values
+
+String configurations store text, URLs, or identifiers:
+
+```typescript
+const stringConfig = await admin.createConfig({
+  project_reference: 'my-app-prod',
+  key: 'welcome_message',
+  description: 'Homepage welcome message',
+  type: 'STRING',
+  is_active: true,
+  default_value: 'Welcome to our application!',
+  validation_schema: {
+    type: 'string',
+    minLength: 1,
+    maxLength: 200
+  }
+});
+```
+
+**Use cases:**
+- Messages: `welcome_text`, `error_messages`
+- URLs: `api_endpoint`, `cdn_base_url`
+- API keys: `third_party_api_key` (better as SECRET)
+- Identifiers: `analytics_tracking_id`, `feature_cohort`
+
+### SECRET - Encrypted Values
+
+Secret configurations store sensitive data that should be encrypted:
+
+```typescript
+const secretConfig = await admin.createConfig({
+  project_reference: 'my-app-prod',
+  key: 'stripe_api_key',
+  description: 'Stripe payment gateway API key',
+  type: 'SECRET',
+  is_active: true,
+  default_value: 'sk_test_abc123def456',
+  validation_schema: {
+    type: 'string',
+    pattern: '^sk_(test|live)_[a-zA-Z0-9]+$'
+  }
+});
+```
+
+<Warning>
+SECRET configurations should be used for sensitive data like API keys, passwords, tokens, and credentials. Implement proper encryption at rest and in transit.
+</Warning>
+
+**Use cases:**
+- API keys: `stripe_key`, `aws_secret_key`
+- Credentials: `database_password`, `smtp_password`
+- Tokens: `jwt_secret`, `oauth_client_secret`
+- Certificates: `ssl_private_key`, `signing_key`
+
+## Default Values
+
+The `default_value` is returned when:
+- No rules match the evaluation context
+- The configuration is inactive (`is_active: false`)
+- Rule evaluation fails
+
+```typescript
+// Default values must match the configuration type
+const configs = [
+  { type: 'BOOLEAN', default_value: false },
+  { type: 'STRING', default_value: 'default text' },
+  { type: 'JSON', default_value: { key: 'value' } },
+  { type: 'SECRET', default_value: 'secret123' }
+];
+```
+
+<Note>
+Default values should always be safe, conservative choices that work in all contexts.
+</Note>
+
+## Validation Schemas
+
+Validation schemas use JSON Schema to enforce type safety and constraints:
+
+### Boolean Validation
+
+```typescript
+validation_schema: {
+  type: 'boolean'
+}
+```
+
+### String Validation
+
+```typescript
+validation_schema: {
+  type: 'string',
+  minLength: 5,
+  maxLength: 100,
+  pattern: '^[a-zA-Z0-9_-]+$'
+}
+```
+
+### Number Validation
+
+```typescript
+validation_schema: {
+  type: 'number',
+  minimum: 0,
+  maximum: 100,
+  multipleOf: 5
+}
+```
+
+### Object Validation
+
+```typescript
+validation_schema: {
+  type: 'object',
+  properties: {
+    enabled: { type: 'boolean' },
+    threshold: { type: 'number', minimum: 0 },
+    message: { type: 'string' }
+  },
+  required: ['enabled', 'threshold'],
+  additionalProperties: false
+}
+```
+
+### Array Validation
+
+```typescript
+validation_schema: {
+  type: 'array',
+  items: { type: 'string' },
+  minItems: 1,
+  maxItems: 10,
+  uniqueItems: true
+}
+```
+
+## Creating Configurations
+
+```typescript
+import { AdminClient } from '@weapon-x/sdk';
+
+const admin = new AdminClient({
+  baseUrl: 'https://api.weapon-x.io',
+  headers: { Authorization: 'Bearer YOUR_TOKEN' }
+});
+
+const config = await admin.createConfig({
+  project_reference: 'my-app-prod',
+  key: 'max_upload_size',
+  description: 'Maximum file upload size in MB',
+  type: 'JSON',
+  is_active: true,
+  default_value: { size: 10, unit: 'MB' },
+  validation_schema: {
+    type: 'object',
+    properties: {
+      size: { type: 'number', minimum: 1 },
+      unit: { type: 'string', enum: ['MB', 'GB'] }
+    }
+  }
+});
+
+console.log(`Created config: ${config.key}`);
+```
+
+## Configuration Keys
+
+Configuration keys must be unique within a project:
+
+```prisma
+model Configuration {
+  id                String     @id @default(uuid())
+  project_reference String
+  key               String
+  
+  @@unique([project_reference, key])  // Composite unique constraint
+}
+```
+
+**Best practices for keys:**
+- Use snake_case: `enable_feature`, `max_retries`
+- Be descriptive: `payment_gateway_timeout_seconds` not `timeout`
+- Namespace related configs: `cache_ttl`, `cache_enabled`, `cache_strategy`
+- Avoid spaces and special characters
+
+<Warning>
+Keys are case-sensitive. `Enable_Feature` and `enable_feature` are different configurations.
+</Warning>
+
+## Active/Inactive Configurations
+
+The `is_active` flag controls whether a configuration is evaluated:
+
+```typescript
+// Active configuration: rules are evaluated
+const activeConfig = {
+  key: 'feature_x',
+  is_active: true,
+  default_value: false,
+  rules: [/* rules here */]
+};
+
+// Inactive configuration: always returns null
+const inactiveConfig = {
+  key: 'deprecated_feature',
+  is_active: false,
+  default_value: true,  // Ignored!
+  rules: [/* ignored */]
+};
+```
+
+**Evaluation behavior:**
+- `is_active: true` → Evaluate rules, return matched value or default
+- `is_active: false` → Skip evaluation, return `null` with reason `DISABLED`
+
+```typescript
+// Evaluation result for inactive config
+{
+  value: null,
+  rule_id: 'none',
+  reason: 'DISABLED'
+}
+```
+
+## Configuration Lifecycle
+
+1. **Creation**: Define type, key, and default value
+2. **Rule Assignment**: Add conditional rules for dynamic values
+3. **Activation**: Set `is_active: true` to enable
+4. **Evaluation**: SDK evaluates rules and returns values
+5. **Updates**: Modify default value, validation, or rules
+6. **Deactivation**: Set `is_active: false` to disable
+7. **Deletion**: Remove configuration (cascades to rules)
+
+<Info>
+Configurations can be toggled on/off without deletion, preserving rules and history.
+</Info>
+
+## Working with Rules
+
+Configurations gain power when combined with [Rules](/concepts/rules):
+
+```typescript
+// 1. Create configuration
+const config = await admin.createConfig({
+  project_reference: 'my-app-prod',
+  key: 'premium_features_enabled',
+  type: 'BOOLEAN',
+  is_active: true,
+  default_value: false
+});
+
+// 2. Add rule for premium users
+await admin.assignRule('premium_features_enabled', {
+  project_reference: 'my-app-prod',
+  name: 'Enable for premium users',
+  conditions: [
+    { attribute: 'user_tier', operator: 'EQUALS', value: 'premium' }
+  ],
+  return_value: true,
+  rollout_percentage: 100
+});
+
+// 3. Evaluate for a specific user
+const result = await client.evaluate({
+  keys: ['premium_features_enabled'],
+  filters: { user_tier: 'premium' }
+});
+
+console.log(result.data.premium_features_enabled);
+// { value: true, rule_id: '<rule-uuid>', reason: 'MATCH' }
+```
+
+## Database Schema
+
+Prisma schema for configurations:
+
+```prisma
+enum ConfigType {
+  BOOLEAN
+  JSON
+  STRING
+  SECRET
+}
+
+model Configuration {
+  id                String     @id @default(uuid()) @db.Uuid
+  project_reference String     @db.VarChar(100)
+  key               String     @db.VarChar(255)
+  description       String     @default("") @db.Text
+  type              ConfigType
+  is_active         Boolean    @default(true)
+  default_value     Json
+  validation_schema Json       @default("{}")
+  created_at        DateTime   @default(now()) @db.Timestamptz
+  updated_at        DateTime   @updatedAt @db.Timestamptz
+
+  project Project @relation(
+    fields: [project_reference], 
+    references: [reference], 
+    onDelete: Cascade
+  )
+  rules   Rule[]
+
+  @@unique([project_reference, key])
+  @@index([project_reference])
+  @@index([key])
+  @@map("configurations")
+}
+```
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Choose the right type">
+    - **BOOLEAN**: Simple on/off decisions
+    - **STRING**: Single text values, URLs, IDs
+    - **JSON**: Complex objects, arrays, nested data
+    - **SECRET**: Sensitive credentials (encrypted storage)
+  </Accordion>
+  
+  <Accordion title="Always provide sensible defaults">
+    Default values should be safe and conservative:
+    ```typescript
+    // Good defaults
+    { key: 'experimental_mode', default_value: false }  // Safe: off
+    { key: 'max_retries', default_value: 3 }            // Safe: reasonable
+    { key: 'timeout_ms', default_value: 5000 }          // Safe: moderate
+    
+    // Risky defaults
+    { key: 'debug_mode', default_value: true }          // Risky: exposes data
+    { key: 'rate_limit', default_value: 0 }             // Risky: unlimited
+    ```
+  </Accordion>
+  
+  <Accordion title="Use validation schemas">
+    Define schemas to catch errors early:
+    ```typescript
+    validation_schema: {
+      type: 'object',
+      properties: {
+        timeout: { type: 'number', minimum: 100, maximum: 30000 },
+        retries: { type: 'number', minimum: 0, maximum: 10 }
+      },
+      required: ['timeout', 'retries']
+    }
+    ```
+  </Accordion>
+  
+  <Accordion title="Document your configurations">
+    Use descriptive keys and detailed descriptions:
+    ```typescript
+    {
+      key: 'checkout_flow_v2_enabled',
+      description: 'Enable the new streamlined checkout flow. Launched Q1 2026. Related to JIRA-1234.'
+    }
+    ```
+  </Accordion>
+  
+  <Accordion title="Clean up unused configurations">
+    Regularly audit and remove deprecated configurations:
+    - Set `is_active: false` to disable
+    - Monitor usage with audit logs
+    - Delete after confirming no references
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Add Rules" icon="code-branch" href="/concepts/rules">
+    Create conditional logic for dynamic configuration values
+  </Card>
+  <Card title="Evaluation Modes" icon="bolt" href="/concepts/evaluation-modes">
+    Learn about remote vs. sync evaluation strategies
+  </Card>
+</CardGroup>

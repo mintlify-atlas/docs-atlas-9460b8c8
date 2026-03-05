@@ -1,0 +1,63 @@
+---
+title: Delete Role
+api: DELETE /v1/admin/roles/:id
+description: Delete a role
+---
+
+## Authentication
+
+Requires a token with `roles:write` permission.
+
+## Path Parameters
+
+<ParamField path="id" type="string" required>
+  The unique UUID of the role to delete.
+</ParamField>
+
+## Response
+
+Returns `204 No Content` on successful deletion.
+
+## Example Request
+
+```bash
+curl -X DELETE https://api.weaponx.io/v1/admin/roles/750e8400-e29b-41d4-a716-446655440002 \
+  -H "Authorization: Bearer YOUR_TOKEN"
+```
+
+## Example Response
+
+No response body (204 status code).
+
+## Error Responses
+
+### 401 Unauthorized
+
+```json
+{
+  "error": "Unauthorized",
+  "message": "Invalid or missing authentication token"
+}
+```
+
+### 403 Forbidden
+
+```json
+{
+  "error": "Forbidden",
+  "message": "Insufficient permissions: roles:write required"
+}
+```
+
+### 404 Not Found
+
+```json
+{
+  "error": "Not Found",
+  "message": "Role not found"
+}
+```
+
+<Warning>
+  Deleting a role may affect existing authentication tokens. Ensure no active tokens are using this role before deletion.
+</Warning>

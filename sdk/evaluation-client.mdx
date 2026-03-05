@@ -1,0 +1,437 @@
+---
+title: EvaluationClient
+description: Remote feature flag evaluation with server-side processing
+---
+
+## Overview
+
+The `EvaluationClient` performs remote evaluation of feature flags and configurations. Each evaluation request is sent to the Weapon-X API server, which processes rules, conditions, and rollouts to determine the appropriate values.
+
+**Use this client when:**
+- You need real-time evaluation without local caching
+- Configuration changes should take effect immediately
+- You want to minimize client-side complexity
+- Network latency is acceptable for your use case
+
+**Consider `SyncEvaluationClient` instead if:**
+- You need high-performance, low-latency evaluation
+- You can tolerate eventual consistency
+- You want to reduce API calls and network dependency
+
+## Initialization
+
+```typescript
+import { EvaluationClient } from 'weapon-x-sdk';
+
+const client = new EvaluationClient({
+  baseUrl: 'https://api.weapon-x.io',
+  headers: {
+    Authorization: 'Bearer your-evaluation-api-key'
+  }
+});
+```
+
+## evaluate
+
+Evaluate one or more feature flags for a given context.
+
+```typescript
+async evaluate(data: EvaluateRequest): Promise<EvaluateResponse>
+```
+
+### Request Structure
+
+```typescript
+interface EvaluateRequest {
+  filters: Record<string, unknown>;  // Context attributes for rule matching
+  keys: string[];                    // Config keys to evaluate
+  identifier?: string;               // Optional user/entity ID for rollouts
+}
+```
+
+### Response Structure
+
+```typescript
+interface EvaluateResponse {
+  meta: {
+    server_time: number;  // Server timestamp
+  };
+  data: Record<string, EvaluationResult>;
+}
+
+interface EvaluationResult {
+  value: unknown;                    // The evaluated value
+  rule_id: string;                   // ID of matched rule or 'default'/'none'
+  reason: EvaluationReason;          // Why this value was returned
+}
+
+type EvaluationReason =
+  | 'MATCH'              // A rule matched
+  | 'FALLBACK'           // No rules matched, using default
+  | 'DISABLED'           // Config is disabled
+  | 'ROLLOUT_EXCLUDED';  // User excluded by rollout percentage
+```
+
+## Usage Examples
+
+<Tabs>
+  <Tab title="Basic Evaluation">
+    ```typescript
+    const result = await client.evaluate({
+      filters: {
+        userId: 'user-123',
+        country: 'US'
+      },
+      keys: ['enable-new-ui', 'checkout-version']
+    });
+
+    console.log(result.data['enable-new-ui'].value);  // true or false
+    console.log(result.data['enable-new-ui'].reason); // 'MATCH', 'FALLBACK', etc.
+    console.log(result.data['checkout-version'].value);
+    ```
+  </Tab>
+  
+  <Tab title="With Identifier for Rollouts">
+    ```typescript
+    // Identifier is used for consistent rollout bucketing
+    const result = await client.evaluate({
+      filters: {
+        plan: 'premium',
+        region: 'us-west'
+      },
+      keys: ['new-algorithm'],
+      identifier: 'user-123'  // Same user always gets same rollout result
+    });
+
+    if (result.data['new-algorithm'].value === true) {
+      // User is in the rollout group
+    }
+    ```
+  </Tab>
+  
+  <Tab title="Multiple Flags">
+    ```typescript
+    const result = await client.evaluate({
+      filters: {
+        userId: 'user-456',
+        subscription: 'enterprise',
+        beta_tester: true
+      },
+      keys: [
+        'feature-a',
+        'feature-b',
+        'feature-c',
+        'ui-theme',
+        'max-upload-size'
+      ]
+    });
+
+    // Access each result
+    for (const [key, evaluation] of Object.entries(result.data)) {
+      console.log(`${key}: ${evaluation.value} (${evaluation.reason})`);
+    }
+    ```
+  </Tab>
+  
+  <Tab title="Rich Context">
+    ```typescript
+    const result = await client.evaluate({
+      filters: {
+        // User attributes
+        userId: 'user-789',
+        email: 'user@example.com',
+        subscription: 'premium',
+        account_age_days: 45,
+        
+        // Location
+        country: 'CA',
+        region: 'ontario',
+        timezone: 'America/Toronto',
+        
+        // Device/platform
+        platform: 'ios',
+        app_version: '2.5.0',
+        device_type: 'mobile',
+        
+        // Custom attributes
+        experiment_group: 'test-a',
+        feature_opt_in: true
+      },
+      keys: ['mobile-optimizations'],
+      identifier: 'user-789'
+    });
+    ```
+  </Tab>
+</Tabs>
+
+## Working with Results
+
+### Type-Safe Value Access
+
+```typescript
+const result = await client.evaluate({
+  filters: { userId: 'user-123' },
+  keys: ['dark-mode', 'settings', 'welcome-message']
+});
+
+// Boolean flag
+const darkMode = result.data['dark-mode'].value as boolean;
+if (darkMode) {
+  enableDarkMode();
+}
+
+// JSON config
+const settings = result.data['settings'].value as {
+  notifications: boolean;
+  language: string;
+};
+
+// String config
+const message = result.data['welcome-message'].value as string;
+```
+
+### Checking Evaluation Reasons
+
+```typescript
+const result = await client.evaluate({
+  filters: { tier: 'free' },
+  keys: ['premium-feature']
+});
+
+const evaluation = result.data['premium-feature'];
+
+switch (evaluation.reason) {
+  case 'MATCH':
+    console.log('Rule matched:', evaluation.rule_id);
+    break;
+  case 'FALLBACK':
+    console.log('Using default value');
+    break;
+  case 'DISABLED':
+    console.log('Feature is disabled');
+    break;
+  case 'ROLLOUT_EXCLUDED':
+    console.log('User not in rollout group');
+    break;
+}
+```
+
+### Server Timestamp
+
+```typescript
+const result = await client.evaluate({
+  filters: {},
+  keys: ['feature-a']
+});
+
+const serverTime = new Date(result.meta.server_time);
+console.log('Evaluated at:', serverTime.toISOString());
+```
+
+## Error Handling
+
+```typescript
+import { EvaluationClient, WeaponXApiError } from 'weapon-x-sdk';
+
+const client = new EvaluationClient({
+  baseUrl: 'https://api.weapon-x.io',
+  headers: {
+    Authorization: 'Bearer api-key'
+  }
+});
+
+try {
+  const result = await client.evaluate({
+    filters: { userId: '123' },
+    keys: ['my-feature']
+  });
+  
+  console.log(result.data['my-feature'].value);
+} catch (error) {
+  if (error instanceof WeaponXApiError) {
+    console.error('API Error:', error.message);
+    console.error('Status Code:', error.statusCode);
+    
+    if (error.statusCode === 401) {
+      console.error('Invalid or expired API key');
+    } else if (error.statusCode === 404) {
+      console.error('Config key not found');
+    } else if (error.statusCode === 422) {
+      console.error('Validation error:', error.details);
+    }
+  } else {
+    console.error('Network or unexpected error:', error);
+  }
+  
+  // Fallback to default values
+  useDefaultFeatureFlags();
+}
+```
+
+## Advanced Patterns
+
+### Evaluation Helper Function
+
+```typescript
+class FeatureFlags {
+  constructor(private client: EvaluationClient) {}
+
+  async isEnabled(
+    key: string,
+    context: Record<string, unknown>,
+    defaultValue = false
+  ): Promise<boolean> {
+    try {
+      const result = await this.client.evaluate({
+        filters: context,
+        keys: [key],
+        identifier: context.userId as string
+      });
+      
+      return result.data[key]?.value as boolean ?? defaultValue;
+    } catch (error) {
+      console.error(`Failed to evaluate ${key}:`, error);
+      return defaultValue;
+    }
+  }
+
+  async getConfig<T>(
+    key: string,
+    context: Record<string, unknown>,
+    defaultValue: T
+  ): Promise<T> {
+    try {
+      const result = await this.client.evaluate({
+        filters: context,
+        keys: [key]
+      });
+      
+      return (result.data[key]?.value as T) ?? defaultValue;
+    } catch (error) {
+      console.error(`Failed to get config ${key}:`, error);
+      return defaultValue;
+    }
+  }
+}
+
+// Usage
+const flags = new FeatureFlags(client);
+
+const context = { userId: 'user-123', plan: 'premium' };
+
+if (await flags.isEnabled('new-dashboard', context)) {
+  renderNewDashboard();
+}
+
+const theme = await flags.getConfig('ui-theme', context, { mode: 'light' });
+```
+
+### Batch Evaluation with Caching
+
+```typescript
+class CachedEvaluationClient {
+  private cache = new Map<string, { value: any; expires: number }>();
+  private cacheTTL = 60000; // 1 minute
+
+  constructor(private client: EvaluationClient) {}
+
+  async evaluate(
+    keys: string[],
+    context: Record<string, unknown>,
+    identifier?: string
+  ) {
+    const cacheKey = JSON.stringify({ keys, context, identifier });
+    const cached = this.cache.get(cacheKey);
+    
+    if (cached && cached.expires > Date.now()) {
+      return cached.value;
+    }
+
+    const result = await this.client.evaluate({
+      filters: context,
+      keys,
+      identifier
+    });
+
+    this.cache.set(cacheKey, {
+      value: result,
+      expires: Date.now() + this.cacheTTL
+    });
+
+    return result;
+  }
+
+  clearCache() {
+    this.cache.clear();
+  }
+}
+```
+
+## Performance Considerations
+
+### Request Batching
+
+Evaluate multiple flags in a single request instead of making separate calls:
+
+```typescript
+// ❌ Bad - Multiple requests
+const featureA = await client.evaluate({ filters: ctx, keys: ['feature-a'] });
+const featureB = await client.evaluate({ filters: ctx, keys: ['feature-b'] });
+const featureC = await client.evaluate({ filters: ctx, keys: ['feature-c'] });
+
+// ✅ Good - Single batched request
+const result = await client.evaluate({
+  filters: ctx,
+  keys: ['feature-a', 'feature-b', 'feature-c']
+});
+```
+
+### Context Optimization
+
+Only send attributes that are actually used in your rules:
+
+```typescript
+// ❌ Bad - Sending unnecessary data
+const result = await client.evaluate({
+  filters: {
+    userId: 'user-123',
+    firstName: 'John',
+    lastName: 'Doe',
+    address: { /* large object */ },
+    preferences: { /* large object */ },
+    // ... 20 more attributes
+  },
+  keys: ['simple-flag']
+});
+
+// ✅ Good - Only relevant attributes
+const result = await client.evaluate({
+  filters: {
+    userId: 'user-123',
+    plan: 'premium'  // Only what rules actually check
+  },
+  keys: ['simple-flag']
+});
+```
+
+## Comparison: Remote vs Sync
+
+| Feature | EvaluationClient (Remote) | SyncEvaluationClient (Local) |
+|---------|---------------------------|------------------------------|
+| Latency | Network round-trip (~50-200ms) | Instant (~1ms) |
+| Consistency | Always current | Eventually consistent |
+| Network calls | Every evaluation | Periodic sync only |
+| Memory usage | Minimal | Caches all configs |
+| Offline support | ❌ No | ✅ Yes (uses cache) |
+| Complexity | Simple | Requires sync management |
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="SyncEvaluationClient" icon="database" href="/sdk/sync-evaluation-client">
+    Learn about high-performance local evaluation
+  </Card>
+  <Card title="AdminClient" icon="shield-halved" href="/sdk/admin-client">
+    Manage configs and rules
+  </Card>
+</CardGroup>

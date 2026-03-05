@@ -1,0 +1,82 @@
+---
+title: Authentication
+description: Learn how to authenticate API requests to Weapon-X
+---
+
+Weapon-X uses Bearer token authentication for API requests.
+
+## Authentication Methods
+
+### Bearer Token
+
+Include your API token in the `Authorization` header:
+
+```bash
+Authorization: Bearer YOUR_TOKEN_HERE
+```
+
+## Token Types
+
+Weapon-X supports different token types with specific permissions:
+
+### Admin Tokens
+
+Admin tokens have full access to management operations:
+- Create and manage projects
+- Configure feature flags
+- Manage roles and permissions
+- Create authentication tokens
+
+### Evaluation Tokens
+
+Evaluation tokens are limited to:
+- Reading configuration values
+- Evaluating feature flags
+- No write access
+
+## Permissions
+
+Tokens are associated with roles that define permissions:
+
+| Permission | Description |
+|------------|-------------|
+| `projects:read` | View projects |
+| `projects:write` | Create, update, and delete projects |
+| `environments:read` | View environments |
+| `environments:write` | Manage environments |
+| `configs:read` | Read configuration values |
+| `configs:write` | Create and modify configurations |
+| `rules:write` | Create and assign rules |
+| `roles:read` | View roles |
+| `roles:write` | Manage roles |
+| `authentications:read` | View authentication tokens |
+| `authentications:write` | Create and manage tokens |
+
+## Example Request
+
+```bash
+curl -X GET https://api.weaponx.io/v1/admin/projects \
+  -H "Authorization: Bearer sk_live_abc123..."
+```
+
+## Token Management
+
+Create and manage authentication tokens using the [Authentication Tokens API](/api/auth/create).
+
+## Token Introspection
+
+Validate tokens and check expiration using the [introspect endpoint](/api/auth/introspect):
+
+```bash
+curl -X POST https://api.weaponx.io/v1/auth/introspect \
+  -H "Authorization: Bearer YOUR_TOKEN"
+```
+
+## Security Best Practices
+
+1. **Never commit tokens** to version control
+2. **Rotate tokens regularly** for production environments
+3. **Use environment-specific tokens** (dev, staging, production)
+4. **Set expiration dates** for temporary access
+5. **Use minimum required permissions** for each token
+6. **Store tokens securely** using environment variables or secret managers

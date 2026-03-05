@@ -1,0 +1,167 @@
+---
+title: Evaluate Configurations
+api: POST /v1/evaluate
+description: Evaluate multiple configurations for a given context
+---
+
+## Authentication
+
+Requires a token with `configs:read` permission.
+
+## Request Body
+
+<ParamField body="filters" type="object" required>
+  Context object containing attributes for rule evaluation. Keys are attribute names, values are the attribute values.
+</ParamField>
+
+<ParamField body="keys" type="array" required>
+  Array of configuration keys to evaluate (minimum 1).
+</ParamField>
+
+<ParamField body="identifier" type="string">
+  Optional user identifier for consistent rollout bucketing.
+</ParamField>
+
+## Response
+
+<ResponseField name="meta" type="object">
+  Metadata about the evaluation.
+  
+  <ResponseField name="server_time" type="number">
+    Unix timestamp of evaluation (seconds).
+  </ResponseField>
+</ResponseField>
+
+<ResponseField name="data" type="object">
+  Object mapping configuration keys to evaluation results.
+  
+  <ResponseField name="value" type="any">
+    The evaluated value for the configuration.
+  </ResponseField>
+  
+  <ResponseField name="rule_id" type="string">
+    ID of the matched rule, or configuration ID if using default.
+  </ResponseField>
+  
+  <ResponseField name="reason" type="string">
+    Evaluation reason. One of: `MATCH`, `FALLBACK`, `DISABLED`, `ROLLOUT_EXCLUDED`.
+  </ResponseField>
+</ResponseField>
+
+## Example Request
+
+```bash
+curl -X POST https://api.weaponx.io/v1/evaluate \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "filters": {
+      "user_segment": "beta",
+      "country": "US",
+      "account_age_days": 45
+    },
+    "keys": ["enable_new_ui", "theme_config"],
+    "identifier": "user-12345"
+  }'
+```
+
+## Example Response
+
+```json
+{
+  "meta": {
+    "server_time": 1709636400
+  },
+  "data": {
+    "enable_new_ui": {
+      "value": true,
+      "rule_id": "650e8400-e29b-41d4-a716-446655440001",
+      "reason": "MATCH"
+    },
+    "theme_config": {
+      "value": {
+        "theme": "dark",
+        "fontSize": 14
+      },
+      "rule_id": "550e8400-e29b-41d4-a716-446655440000",
+      "reason": "FALLBACK"
+    }
+  }
+}
+```
+
+## Evaluation Reasons
+
+### MATCH
+
+A rule's conditions matched and the rule's return value was used.
+
+### FALLBACK
+
+No rules matched, the configuration's default value was used.
+
+### DISABLED
+
+The configuration is marked as inactive (`is_active: false`). The default value is returned.
+
+### ROLLOUT_EXCLUDED
+
+A rule matched but the identifier was excluded by the rollout percentage. The evaluation continues to the next rule or falls back to default.
+
+## Rollout Bucketing
+
+When a rule has `rollout_percentage < 100`, the system uses consistent hashing with the `identifier` to determine inclusion:
+
+- Same identifier always gets the same bucketing result
+- Without an identifier, random bucketing is used (inconsistent across requests)
+- Use stable identifiers like user IDs for consistent user experiences
+
+## Example with Multiple Conditions
+
+```bash
+curl -X POST https://api.weaponx.io/v1/evaluate \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "filters": {
+      "email": "user@company.com",
+      "plan": "enterprise",
+      "features": ["ai", "analytics"]
+    },
+    "keys": ["max_api_calls", "enable_advanced_features"]
+  }'
+```
+
+## Error Responses
+
+### 400 Bad Request
+
+```json
+{
+  "error": "Validation Error",
+  "details": [
+    {
+      "message": "\"keys\" must contain at least 1 items",
+      "path": ["keys"]
+    }
+  ]
+}
+```
+
+### 401 Unauthorized
+
+```json
+{
+  "error": "Unauthorized",
+  "message": "Invalid or missing authentication token"
+}
+```
+
+### 403 Forbidden
+
+```json
+{
+  "error": "Forbidden",
+  "message": "Insufficient permissions: configs:read required"
+}
+```

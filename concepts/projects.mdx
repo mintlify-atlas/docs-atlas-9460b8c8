@@ -1,0 +1,221 @@
+---
+title: 'Projects'
+description: 'Organize and manage your configurations within projects'
+icon: 'folder-open'
+---
+
+## Overview
+
+Projects are the top-level organizational unit in Weapon-X. Each project represents an application or service and contains all its configurations, rules, and authentication credentials. Projects use a unique `reference` identifier that serves as the primary key throughout the system.
+
+<Info>
+Think of projects as isolated workspaces for your applications. Each project can have its own set of configurations, rules, and access controls.
+</Info>
+
+## Data Model
+
+Projects have the following structure:
+
+```typescript
+interface Project {
+  reference: string;           // Unique identifier (max 100 chars)
+  name: string;               // Human-readable name (max 255 chars)
+  environment_id?: string;    // Optional environment association
+  created_at: string;         // ISO 8601 timestamp
+  updated_at: string;         // ISO 8601 timestamp
+  configurations?: Config[];  // Associated configurations
+  authentications?: Authentication[]; // Access credentials
+}
+```
+
+### The Reference Field
+
+The `reference` field is the unique identifier for your project and has special characteristics:
+
+- **Primary Key**: Used as the unique identifier throughout the system
+- **URL-Safe**: Should be URL-safe as it's used in API endpoints
+- **Immutable**: Cannot be changed after project creation
+- **Max Length**: 100 characters
+- **Case-Sensitive**: "my-project" and "My-Project" are different
+
+<Warning>
+Choose your project reference carefully! It cannot be changed after creation and will be used in all API calls and SDK operations.
+</Warning>
+
+**Recommended naming conventions:**
+- Use lowercase with hyphens: `my-app-production`
+- Include environment suffix: `checkout-service-dev`
+- Keep it short but descriptive: `web-app` or `mobile-api`
+
+## Creating a Project
+
+Use the Admin SDK to create a new project:
+
+```typescript
+import { AdminClient } from '@weapon-x/sdk';
+
+const admin = new AdminClient({
+  baseUrl: 'https://api.weapon-x.io',
+  headers: { Authorization: 'Bearer YOUR_TOKEN' }
+});
+
+const project = await admin.createProject({
+  reference: 'my-app-prod',
+  name: 'My Application (Production)'
+});
+
+console.log(project);
+// {
+//   reference: 'my-app-prod',
+//   name: 'My Application (Production)',
+//   created_at: '2026-03-05T10:30:00Z',
+//   updated_at: '2026-03-05T10:30:00Z'
+// }
+```
+
+<Note>
+The `reference` must be unique across your entire Weapon-X instance.
+</Note>
+
+## Managing Projects
+
+### Get a Project
+
+Retrieve a project by its reference:
+
+```typescript
+const project = await admin.getProject('my-app-prod');
+```
+
+### List All Projects
+
+Fetch all projects accessible with your credentials:
+
+```typescript
+const projects = await admin.listProjects('YOUR_TOKEN');
+```
+
+### Update a Project
+
+Only the `name` field can be updated:
+
+```typescript
+const updated = await admin.updateProject('my-app-prod', {
+  name: 'My Application (Production v2)'
+});
+```
+
+### Delete a Project
+
+<Warning>
+Deleting a project is permanent and will cascade delete all configurations, rules, authentications, and audit logs associated with it.
+</Warning>
+
+```typescript
+await admin.deleteProject('my-app-prod');
+```
+
+## Environment Association
+
+Projects can optionally be associated with an [Environment](/concepts/environments). This enables multi-region deployments and environment-specific configurations:
+
+```prisma
+model Project {
+  reference      String       @id
+  name           String
+  environment_id String?      // Optional foreign key
+  
+  environment    Environment? @relation(fields: [environment_id], references: [id])
+}
+```
+
+When a project is linked to an environment:
+- It inherits the environment's `api_base_url` and `region` settings
+- Environment deletion sets `environment_id` to `null` (not cascade delete)
+- You can filter and organize projects by environment
+
+## Project Relationships
+
+A project is the parent entity for:
+
+<CardGroup cols={2}>
+  <Card title="Configurations" icon="sliders" href="/concepts/configurations">
+    Feature flags, settings, and secrets scoped to this project
+  </Card>
+  <Card title="Rules" icon="code-branch" href="/concepts/rules">
+    Conditional logic for dynamic configuration values
+  </Card>
+  <Card title="Authentications" icon="key">
+    API keys and access credentials for this project
+  </Card>
+  <Card title="Audit Logs" icon="list">
+    Change history for configurations and rules
+  </Card>
+</CardGroup>
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Use descriptive references">
+    Choose references that clearly identify the application and environment:
+    - ✅ Good: `checkout-api-prod`, `mobile-app-staging`
+    - ❌ Bad: `proj1`, `test`, `app`
+  </Accordion>
+  
+  <Accordion title="Separate environments as different projects">
+    Create distinct projects for dev, staging, and production:
+    ```
+    my-app-dev
+    my-app-staging
+    my-app-prod
+    ```
+    This provides complete isolation between environments.
+  </Accordion>
+  
+  <Accordion title="Document your naming convention">
+    Establish a team-wide standard for project references:
+    ```
+    [service-name]-[environment]
+    ```
+    Consistency makes management easier as your system scales.
+  </Accordion>
+  
+  <Accordion title="Use environments for multi-region">
+    If you deploy the same app to multiple regions, use environment association:
+    - Create environments: `us-east`, `eu-west`, `ap-south`
+    - Associate projects: `my-app-prod` → `us-east` environment
+  </Accordion>
+</AccordionGroup>
+
+## Database Schema
+
+The underlying Prisma schema:
+
+```prisma
+model Project {
+  reference      String       @id @db.VarChar(100)
+  name           String       @db.VarChar(255)
+  environment_id String?      @db.VarChar(100)
+  created_at     DateTime     @default(now()) @db.Timestamptz
+  updated_at     DateTime     @updatedAt @db.Timestamptz
+
+  environment     Environment?    @relation(fields: [environment_id], references: [id], onDelete: SetNull)
+  configurations  Configuration[]
+  authentications Authentication[]
+  audit_logs      AuditLog[]
+
+  @@index([environment_id])
+  @@map("projects")
+}
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Create Configurations" icon="sliders" href="/concepts/configurations">
+    Add feature flags and settings to your project
+  </Card>
+  <Card title="Set Up Environments" icon="globe" href="/concepts/environments">
+    Configure multi-region or multi-environment deployments
+  </Card>
+</CardGroup>

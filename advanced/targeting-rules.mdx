@@ -1,0 +1,620 @@
+---
+title: "Targeting Rules"
+description: "Build powerful targeting logic with conditions, operators, and priority ordering"
+---
+
+## Overview
+
+Targeting rules allow you to return different configuration values based on user attributes, request context, or any custom data. Each rule consists of:
+
+- **Conditions**: Criteria that must be met (attribute, operator, value)
+- **Return Value**: What to return when conditions match
+- **Priority**: Order of evaluation (lower priority = evaluated first)
+- **Rollout Percentage**: Optional gradual rollout control
+
+## Condition Operators
+
+Weapon-X supports 8 operators for building targeting conditions:
+
+| Operator | Description | Example Use Case |
+|----------|-------------|------------------|
+| `EQUALS` | Exact match (case-insensitive) | User role is "admin" |
+| `NOT_EQUALS` | Does not match (case-insensitive) | Country is not "US" |
+| `IN` | Value is in a list | User ID in beta tester list |
+| `NOT_IN` | Value is not in a list | Email domain not in blocklist |
+| `CONTAINS` | String contains substring | Email contains "@company.com" |
+| `GREATER_THAN` | Numeric comparison | User age > 18 |
+| `LESS_THAN` | Numeric comparison | Account balance < 100 |
+| `REGEX` | Regular expression match | Email matches pattern |
+
+## Operator Implementation
+
+Here's how each operator is evaluated:
+
+```typescript
+// From: sync-evaluation-client.ts:106-132
+private evaluateCondition(contextValue: unknown, operator: string, conditionValue: string | string[]): boolean {
+  const cv = String(contextValue || '').toLowerCase();
+  const list = Array.isArray(conditionValue)
+    ? conditionValue.map(s => s.toLowerCase())
+    : String(conditionValue).split(',').map(s => s.trim().toLowerCase());
+  const scalarVal = Array.isArray(conditionValue)
+    ? conditionValue[0]?.toLowerCase() ?? ''
+    : String(conditionValue).toLowerCase();
+
+  switch (operator) {
+    case 'EQUALS':       return cv === scalarVal;
+    case 'NOT_EQUALS':   return cv !== scalarVal;
+    case 'IN':           return list.includes(cv);
+    case 'NOT_IN':       return !list.includes(cv);
+    case 'CONTAINS':     return cv.includes(scalarVal);
+    case 'GREATER_THAN': return parseFloat(cv) > parseFloat(scalarVal);
+    case 'LESS_THAN':    return parseFloat(cv) < parseFloat(scalarVal);
+    case 'REGEX':
+      try {
+        const pattern = Array.isArray(conditionValue) ? conditionValue[0] : conditionValue;
+        return new RegExp(pattern).test(String(contextValue));
+      } catch {
+        return false;
+      }
+    default: return false;
+  }
+}
+```
+
+<Info>
+**Case Sensitivity:** All operators except `REGEX` perform case-insensitive comparisons by converting values to lowercase.
+</Info>
+
+## Creating Targeting Rules
+
+### Basic Example: Role-Based Feature
+
+```bash
+curl -X POST https://api.weapon-x.dev/v1/admin/rules \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "project_reference": "my-app",
+    "configuration_key": "advanced_analytics",
+    "name": "Enable for Admins",
+    "conditions": [
+      {
+        "attribute": "role",
+        "operator": "EQUALS",
+        "value": "admin"
+      }
+    ],
+    "return_value": true,
+    "priority": 1
+  }'
+```
+
+### Evaluating the Rule
+
+```typescript
+import { WeaponX } from '@weapon-x/sdk';
+
+const client = new WeaponX({
+  baseUrl: 'https://api.weapon-x.dev',
+  headers: { Authorization: 'Bearer YOUR_API_KEY' }
+});
+
+await client.sync('my-app');
+
+// User with admin role
+const result = client.evaluate({
+  keys: ['advanced_analytics'],
+  filters: {
+    role: 'admin' // Matches the condition
+  }
+});
+
+console.log(result.advanced_analytics.value); // true
+console.log(result.advanced_analytics.reason); // "MATCH"
+```
+
+## Operator Examples
+
+### EQUALS / NOT_EQUALS
+
+```json
+{
+  "name": "US Users Only",
+  "conditions": [
+    { "attribute": "country", "operator": "EQUALS", "value": "us" }
+  ],
+  "return_value": { "currency": "USD" }
+}
+```
+
+```typescript
+client.evaluate({
+  keys: ['config'],
+  filters: { country: 'US' } // Case-insensitive: matches "us"
+});
+```
+
+### IN / NOT_IN
+
+```json
+{
+  "name": "Beta Testers",
+  "conditions": [
+    {
+      "attribute": "userId",
+      "operator": "IN",
+      "value": ["user-123", "user-456", "user-789"]
+    }
+  ],
+  "return_value": { "betaFeatures": true }
+}
+```
+
+```typescript
+client.evaluate({
+  keys: ['config'],
+  filters: { userId: 'user-456' } // Matches the IN list
+});
+```
+
+<Tip>
+You can also pass comma-separated strings: `"value": "user-123,user-456,user-789"`
+</Tip>
+
+### CONTAINS
+
+```json
+{
+  "name": "Internal Employees",
+  "conditions": [
+    { "attribute": "email", "operator": "CONTAINS", "value": "@mycompany.com" }
+  ],
+  "return_value": { "showDebugTools": true }
+}
+```
+
+```typescript
+client.evaluate({
+  keys: ['config'],
+  filters: { email: 'alice@mycompany.com' } // Contains "@mycompany.com"
+});
+```
+
+### GREATER_THAN / LESS_THAN
+
+```json
+{
+  "name": "High-Value Customers",
+  "conditions": [
+    { "attribute": "lifetimeValue", "operator": "GREATER_THAN", "value": "1000" }
+  ],
+  "return_value": { "premiumSupport": true }
+}
+```
+
+```typescript
+client.evaluate({
+  keys: ['config'],
+  filters: { lifetimeValue: 1500 } // 1500 > 1000 → matches
+});
+```
+
+### REGEX
+
+```json
+{
+  "name": "Enterprise Email Pattern",
+  "conditions": [
+    {
+      "attribute": "email",
+      "operator": "REGEX",
+      "value": "^[a-z]+@(acme|globex)\\.com$"
+    }
+  ],
+  "return_value": { "enterpriseFeatures": true }
+}
+```
+
+```typescript
+client.evaluate({
+  keys: ['config'],
+  filters: { email: 'john@acme.com' } // Matches regex pattern
+});
+```
+
+<Warning>
+REGEX is **case-sensitive** and uses JavaScript RegExp syntax. Invalid patterns return `false` without throwing errors.
+</Warning>
+
+## Combining Multiple Conditions
+
+All conditions in a rule must match for the rule to apply (logical AND):
+
+```json
+{
+  "name": "Premium US Users",
+  "conditions": [
+    { "attribute": "country", "operator": "EQUALS", "value": "us" },
+    { "attribute": "plan", "operator": "EQUALS", "value": "premium" },
+    { "attribute": "accountAge", "operator": "GREATER_THAN", "value": "30" }
+  ],
+  "return_value": { "exclusiveFeature": true }
+}
+```
+
+```typescript
+// From: sync-evaluation-client.ts:73-76
+const allMet = rule.conditions.every((cond: Condition) => {
+  const ctxVal = data.filters[cond.attribute];
+  return this.evaluateCondition(ctxVal, cond.operator, cond.value);
+});
+```
+
+All three conditions must be true:
+- ✅ `country = "us"`
+- ✅ `plan = "premium"`
+- ✅ `accountAge > 30`
+
+<Info>
+For **OR** logic, create multiple rules with different conditions. The first matching rule wins.
+</Info>
+
+## Priority Ordering
+
+Rules are evaluated in **priority order** (lowest number first):
+
+```json
+[
+  {
+    "name": "VIP Users",
+    "conditions": [{ "attribute": "tier", "operator": "EQUALS", "value": "vip" }],
+    "return_value": { "maxUploadSize": 500 },
+    "priority": 1
+  },
+  {
+    "name": "Premium Users",
+    "conditions": [{ "attribute": "plan", "operator": "EQUALS", "value": "premium" }],
+    "return_value": { "maxUploadSize": 100 },
+    "priority": 2
+  },
+  {
+    "name": "All Users",
+    "conditions": [],
+    "return_value": { "maxUploadSize": 10 },
+    "priority": 3
+  }
+]
+```
+
+**Evaluation order:**
+1. Check "VIP Users" (priority 1) → if matches, return 500
+2. Check "Premium Users" (priority 2) → if matches, return 100
+3. Check "All Users" (priority 3) → always matches, return 10
+
+```typescript
+// VIP user
+client.evaluate({
+  keys: ['config'],
+  filters: { tier: 'vip', plan: 'premium' }
+});
+// Returns: { maxUploadSize: 500 } (priority 1 wins)
+
+// Premium user (not VIP)
+client.evaluate({
+  keys: ['config'],
+  filters: { plan: 'premium' }
+});
+// Returns: { maxUploadSize: 100 } (priority 2 wins)
+
+// Free user
+client.evaluate({
+  keys: ['config'],
+  filters: {}
+});
+// Returns: { maxUploadSize: 10 } (priority 3 wins)
+```
+
+<Tip>
+**Best Practice:** Use lower priorities for more specific rules, higher priorities for general fallbacks.
+</Tip>
+
+## Evaluation Flow
+
+Here's the complete evaluation logic:
+
+```typescript
+// From: sync-evaluation-client.ts:54-100
+evaluate(data: EvaluateRequest): Record<string, EvaluationResult> {
+  const results: Record<string, EvaluationResult> = {};
+
+  for (const key of data.keys) {
+    const config = this.cache.get(key);
+
+    // 1. Configuration not found
+    if (!config) {
+      results[key] = { value: null, rule_id: 'none', reason: 'FALLBACK' };
+      continue;
+    }
+
+    // 2. Configuration disabled
+    if (!config.is_active) {
+      results[key] = { value: null, rule_id: 'none', reason: 'DISABLED' };
+      continue;
+    }
+
+    let matched = false;
+
+    // 3. Iterate rules in priority order
+    for (const rule of config.rules || []) {
+      // 4. Check all conditions
+      const allMet = rule.conditions.every((cond: Condition) => {
+        const ctxVal = data.filters[cond.attribute];
+        return this.evaluateCondition(ctxVal, cond.operator, cond.value);
+      });
+
+      if (allMet) {
+        // 5. Apply rollout percentage
+        const rollout = rule.rollout_percentage ?? 100;
+        if (rollout < 100) {
+          const identifier = String(data.filters.identifier || data.identifier || '');
+          const hash = this.computeRolloutHash(identifier, rule.id);
+          if (hash >= rollout) {
+            continue; // Skip to next rule
+          }
+        }
+
+        // 6. Return first matching rule
+        results[key] = { value: rule.return_value, rule_id: rule.id, reason: 'MATCH' };
+        matched = true;
+        break;
+      }
+    }
+
+    // 7. Fallback to default value
+    if (!matched) {
+      results[key] = { value: config.default_value, rule_id: 'default', reason: 'FALLBACK' };
+    }
+  }
+
+  return results;
+}
+```
+
+**Evaluation steps:**
+1. Check if configuration exists
+2. Check if configuration is active
+3. Iterate rules in priority order (lowest first)
+4. For each rule, check if **all** conditions match
+5. If conditions match, apply rollout percentage
+6. Return the **first** matching rule's value
+7. If no rules match, return the default value
+
+## Advanced Patterns
+
+### Geographic Targeting
+
+```json
+[
+  {
+    "name": "EU Users - GDPR Compliant",
+    "conditions": [
+      { "attribute": "country", "operator": "IN", "value": ["de", "fr", "uk", "es"] }
+    ],
+    "return_value": { "gdprMode": true, "cookieBanner": "strict" },
+    "priority": 1
+  },
+  {
+    "name": "US Users - Standard",
+    "conditions": [
+      { "attribute": "country", "operator": "EQUALS", "value": "us" }
+    ],
+    "return_value": { "gdprMode": false, "cookieBanner": "standard" },
+    "priority": 2
+  }
+]
+```
+
+### Device-Specific Configurations
+
+```json
+{
+  "name": "Mobile Optimizations",
+  "conditions": [
+    { "attribute": "deviceType", "operator": "IN", "value": ["mobile", "tablet"] },
+    { "attribute": "screenWidth", "operator": "LESS_THAN", "value": "768" }
+  ],
+  "return_value": {
+    "imageQuality": "low",
+    "enableLazyLoad": true,
+    "maxItemsPerPage": 10
+  }
+}
+```
+
+### Time-Based Features (with external data)
+
+```typescript
+// Calculate tenure in your application code
+const accountAgeInDays = Math.floor(
+  (Date.now() - user.createdAt.getTime()) / (1000 * 60 * 60 * 24)
+);
+
+const result = client.evaluate({
+  keys: ['loyalty_program'],
+  filters: {
+    accountAge: accountAgeInDays,
+    totalSpent: user.totalSpent
+  }
+});
+```
+
+```json
+{
+  "name": "Loyalty Program - 1 Year+",
+  "conditions": [
+    { "attribute": "accountAge", "operator": "GREATER_THAN", "value": "365" },
+    { "attribute": "totalSpent", "operator": "GREATER_THAN", "value": "500" }
+  ],
+  "return_value": { "loyaltyTier": "gold", "discountPercent": 15 }
+}
+```
+
+### Percentage Rollout with Targeting
+
+```json
+{
+  "name": "New Feature - 50% of Beta Users",
+  "conditions": [
+    { "attribute": "betaOptIn", "operator": "EQUALS", "value": "true" }
+  ],
+  "return_value": { "newFeature": true },
+  "rollout_percentage": 50,
+  "priority": 1
+}
+```
+
+<Info>
+Rollout percentage is applied **after** conditions match. Only 50% of users who meet the `betaOptIn` condition will see the feature.
+</Info>
+
+## Testing Targeting Rules
+
+### Test in the SDK
+
+```typescript
+const testCases = [
+  { filters: { role: 'admin' }, expected: true },
+  { filters: { role: 'user' }, expected: false },
+  { filters: { country: 'us', plan: 'premium' }, expected: { tier: 'gold' } }
+];
+
+for (const test of testCases) {
+  const result = client.evaluate({
+    keys: ['feature'],
+    filters: test.filters
+  });
+  console.log('Filters:', test.filters, '→ Result:', result.feature.value);
+}
+```
+
+### Test with API
+
+```bash
+curl -X POST https://api.weapon-x.dev/v1/evaluate \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "keys": ["advanced_analytics"],
+    "filters": {
+      "role": "admin",
+      "country": "us"
+    }
+  }'
+```
+
+## Best Practices
+
+### Use Descriptive Rule Names
+
+```json
+// ✅ Good: Clear intent
+{ "name": "Premium US Users - Holiday Promotion" }
+
+// ❌ Bad: Vague
+{ "name": "Rule 3" }
+```
+
+### Keep Conditions Simple
+
+Limit to 3-5 conditions per rule for maintainability:
+
+```json
+// ✅ Good: Focused and clear
+{
+  "conditions": [
+    { "attribute": "country", "operator": "EQUALS", "value": "us" },
+    { "attribute": "plan", "operator": "EQUALS", "value": "premium" }
+  ]
+}
+
+// ❌ Bad: Too complex
+{
+  "conditions": [
+    // 10+ conditions...
+  ]
+}
+```
+
+### Order Rules by Specificity
+
+```json
+[
+  { "name": "Specific: VIP in US", "priority": 1 },
+  { "name": "Moderate: Premium Users", "priority": 2 },
+  { "name": "General: All Users", "priority": 3 }
+]
+```
+
+### Handle Missing Attributes
+
+Missing attributes evaluate as empty strings:
+
+```typescript
+// If user.country is undefined:
+client.evaluate({
+  keys: ['config'],
+  filters: { country: undefined } // Treated as ""
+});
+
+// This condition will NOT match:
+{ "attribute": "country", "operator": "EQUALS", "value": "us" }
+```
+
+<Warning>
+Always provide expected attributes in filters to avoid unexpected fallbacks.
+</Warning>
+
+## Troubleshooting
+
+### Rule Not Matching
+
+1. **Check case sensitivity:** All operators (except REGEX) are case-insensitive
+2. **Verify attribute names:** Ensure `filters.attribute` matches `condition.attribute`
+3. **Test conditions individually:** Isolate each condition to find the failure point
+4. **Check priority order:** A higher-priority rule may be matching first
+
+### Unexpected Fallback
+
+```typescript
+const result = client.evaluate({ keys: ['feature'], filters: { role: 'admin' } });
+console.log(result.feature.reason); // "FALLBACK" or "MATCH"?
+```
+
+- `"DISABLED"`: Configuration is inactive
+- `"FALLBACK"`: No rules matched; returned default value
+- `"MATCH"`: Rule matched successfully
+
+### Debugging Evaluation
+
+```typescript
+const result = client.evaluate({ keys: ['feature'], filters: { role: 'admin' } });
+
+console.log('Value:', result.feature.value);
+console.log('Rule ID:', result.feature.rule_id);
+console.log('Reason:', result.feature.reason);
+
+// "rule_id" tells you which rule matched
+// "reason" explains why you got this result
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Rollout Strategies" icon="chart-line" href="/advanced/rollout-strategies">
+    Combine targeting with percentage-based rollouts
+  </Card>
+  <Card title="Security" icon="shield" href="/advanced/security">
+    Secure your configurations with authentication and permissions
+  </Card>
+</CardGroup>

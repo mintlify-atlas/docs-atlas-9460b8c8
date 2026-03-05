@@ -1,0 +1,323 @@
+---
+title: "Rollout Strategies"
+description: "Control feature availability with percentage-based rollouts and gradual deployment strategies"
+---
+
+## Overview
+
+Rollout strategies allow you to control what percentage of your users see a specific configuration value. This is essential for:
+
+- **Gradual rollouts**: Release features to 10%, then 50%, then 100% of users
+- **Canary deployments**: Test changes with a small subset before full release
+- **A/B testing**: Split traffic between variants for experimentation
+- **Risk mitigation**: Limit blast radius of potentially problematic changes
+
+## How Rollout Percentage Works
+
+Each rule can specify a `rollout_percentage` from 0 to 100. When conditions match, Weapon-X determines if the user falls within the rollout bucket using a deterministic hash:
+
+```typescript
+// From: sync-evaluation-client.ts:79-86
+const rollout = rule.rollout_percentage ?? 100;
+if (rollout < 100) {
+  const identifier = String(data.filters.identifier || data.identifier || '');
+  const hash = this.computeRolloutHash(identifier, rule.id);
+  if (hash >= rollout) {
+    continue; // Skip this rule, try next
+  }
+}
+```
+
+### Hash-Based Distribution
+
+The rollout hash is **deterministic** and **stable**:
+
+```typescript
+// From: sha256.ts:9-13
+export function computeRolloutHash(identifier: string, ruleId: string): number {
+  const digest = SHA256(`${identifier}:${ruleId}`).toString();
+  const slice = parseInt(digest.substring(0, 8), 16);
+  return slice % 100; // Returns 0-99
+}
+```
+
+**Key properties:**
+- Same `identifier` + `ruleId` always produces the same hash (0-99)
+- Distribution is uniform across the 0-99 range
+- Users stay in the same bucket even across sessions
+- Changing the `ruleId` reshuffles the distribution
+
+## Setting Up a Rollout
+
+### Step 1: Create a Rule with Rollout Percentage
+
+```bash
+curl -X POST https://api.weapon-x.dev/v1/admin/rules \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "project_reference": "my-app",
+    "configuration_key": "new_checkout_flow",
+    "name": "New Checkout - 25% Rollout",
+    "conditions": [],
+    "return_value": true,
+    "rollout_percentage": 25
+  }'
+```
+
+### Step 2: Provide an Identifier
+
+The `identifier` determines which bucket a user falls into. Typically this is a user ID:
+
+```typescript
+import { WeaponX } from '@weapon-x/sdk';
+
+const client = new WeaponX({
+  baseUrl: 'https://api.weapon-x.dev',
+  headers: { Authorization: 'Bearer YOUR_API_KEY' }
+});
+
+await client.sync('my-app');
+
+const result = client.evaluate({
+  keys: ['new_checkout_flow'],
+  identifier: user.id, // Critical: Same user always gets same result
+  filters: {}
+});
+
+if (result.new_checkout_flow.value) {
+  // Show new checkout (25% of users)
+} else {
+  // Show old checkout (75% of users)
+}
+```
+
+<Warning>
+Always use a **stable identifier** (user ID, session ID) that doesn't change. If you omit or change the identifier, the same user may see inconsistent behavior.
+</Warning>
+
+## Gradual Rollout Pattern
+
+### Scenario: Rolling out a new dashboard
+
+**Phase 1: 10% to internal users**
+
+```json
+{
+  "name": "New Dashboard - 10% Internal",
+  "conditions": [
+    { "attribute": "email", "operator": "CONTAINS", "value": "@mycompany.com" }
+  ],
+  "return_value": true,
+  "rollout_percentage": 10,
+  "priority": 1
+}
+```
+
+**Phase 2: 50% to all users**
+
+```json
+{
+  "name": "New Dashboard - 50% All Users",
+  "conditions": [],
+  "return_value": true,
+  "rollout_percentage": 50,
+  "priority": 2
+}
+```
+
+**Phase 3: 100% (remove rollout restriction)**
+
+```json
+{
+  "name": "New Dashboard - Full Release",
+  "conditions": [],
+  "return_value": true,
+  "rollout_percentage": 100,
+  "priority": 3
+}
+```
+
+<Info>
+Rules are evaluated in **priority order** (lowest first). This lets you layer rollouts: internal users at 10%, then general users at 50%.
+</Info>
+
+## Rollout with Targeting
+
+Combine rollouts with conditions for sophisticated control:
+
+```json
+{
+  "name": "Premium Feature - 50% of Enterprise Users",
+  "conditions": [
+    { "attribute": "plan", "operator": "EQUALS", "value": "enterprise" }
+  ],
+  "return_value": { "enabled": true, "variant": "premium-v2" },
+  "rollout_percentage": 50
+}
+```
+
+This rule:
+1. ✅ Matches only users where `plan = "enterprise"`
+2. ✅ Of those matching users, only 50% see the feature
+3. ❌ Non-enterprise users never see it, regardless of rollout
+
+## A/B Testing with Multiple Variants
+
+Create multiple rules with different rollout ranges:
+
+```json
+[
+  {
+    "name": "Variant A - Blue Button",
+    "conditions": [],
+    "return_value": { "buttonColor": "blue" },
+    "rollout_percentage": 50,
+    "priority": 1
+  },
+  {
+    "name": "Variant B - Green Button",
+    "conditions": [],
+    "return_value": { "buttonColor": "green" },
+    "rollout_percentage": 50,
+    "priority": 2
+  }
+]
+```
+
+<Warning>
+This approach splits the **remaining** users after each rule. For true 50/50 splits, use separate configuration keys or adjust percentages accordingly.
+</Warning>
+
+## Best Practices
+
+### Use Consistent Identifiers
+
+```typescript
+// ✅ Good: Stable user ID
+const result = client.evaluate({
+  identifier: user.id,
+  keys: ['feature'],
+  filters: {}
+});
+
+// ❌ Bad: Random or changing value
+const result = client.evaluate({
+  identifier: Math.random().toString(),
+  keys: ['feature'],
+  filters: {}
+});
+```
+
+### Start Small, Scale Gradually
+
+1. **5-10%**: Catch critical bugs with minimal impact
+2. **25-50%**: Validate performance and user feedback
+3. **100%**: Full release once confident
+
+### Monitor Rollout Metrics
+
+Track which users receive which variant:
+
+```typescript
+const result = client.evaluate({ keys: ['feature'], identifier: userId, filters: {} });
+
+analytics.track('feature_evaluated', {
+  userId,
+  feature: 'new_checkout',
+  value: result.feature.value,
+  ruleId: result.feature.rule_id,
+  reason: result.feature.reason
+});
+```
+
+### Handle Rollout Changes
+
+When increasing rollout from 25% → 50%:
+- Users already in the 25% **stay enabled** (same hash)
+- Additional 25% of users **become enabled**
+- No users are removed
+
+### Emergency Rollback
+
+Set `rollout_percentage: 0` or disable the rule entirely to instantly stop the rollout:
+
+```bash
+curl -X PATCH https://api.weapon-x.dev/v1/admin/rules/{ruleId} \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -d '{ "rollout_percentage": 0 }'
+```
+
+## Evaluation Flow
+
+Here's how rollout percentage fits into the evaluation logic:
+
+```typescript
+// From: sync-evaluation-client.ts:72-92
+for (const rule of config.rules || []) {
+  // 1. Check if all conditions match
+  const allMet = rule.conditions.every((cond: Condition) => {
+    const ctxVal = data.filters[cond.attribute];
+    return this.evaluateCondition(ctxVal, cond.operator, cond.value);
+  });
+
+  if (allMet) {
+    // 2. Apply rollout percentage
+    const rollout = rule.rollout_percentage ?? 100;
+    if (rollout < 100) {
+      const identifier = String(data.filters.identifier || data.identifier || '');
+      const hash = this.computeRolloutHash(identifier, rule.id);
+      if (hash >= rollout) {
+        continue; // Skip this rule
+      }
+    }
+
+    // 3. Return matched rule
+    results[key] = { value: rule.return_value, rule_id: rule.id, reason: 'MATCH' };
+    matched = true;
+    break;
+  }
+}
+```
+
+**Order of operations:**
+1. Evaluate conditions
+2. If conditions pass, check rollout percentage
+3. If user is in rollout bucket, return the rule's value
+4. Otherwise, continue to next rule
+
+## Troubleshooting
+
+### User Not Seeing Expected Rollout
+
+**Check the identifier:**
+```typescript
+console.log('Identifier:', user.id);
+const hash = client.computeRolloutHash(user.id, ruleId);
+console.log('Hash:', hash, '/ Rollout:', rolloutPercentage);
+```
+
+If `hash >= rolloutPercentage`, the user is excluded.
+
+### Rollout Distribution Looks Uneven
+
+- Verify you're using a **diverse identifier** (e.g., UUID, not sequential IDs 1-100)
+- Check sample size: Small samples may not reflect the true distribution
+- Ensure the identifier is stable across evaluations
+
+### Rollout Not Applied
+
+- Confirm `rollout_percentage` is set on the rule
+- Ensure you're passing `identifier` in the evaluate request
+- Check that conditions match before rollout is evaluated
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Targeting Rules" icon="crosshairs" href="/advanced/targeting-rules">
+    Combine rollouts with conditions for precise targeting
+  </Card>
+  <Card title="Security" icon="shield" href="/advanced/security">
+    Secure your rollout configurations with authentication
+  </Card>
+</CardGroup>

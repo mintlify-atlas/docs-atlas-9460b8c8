@@ -1,0 +1,119 @@
+---
+title: Introspect Token
+api: POST /v1/auth/introspect
+description: Validate a token and check its expiration status
+---
+
+## Authentication
+
+This endpoint validates the token provided in the Authorization header. No additional permissions are required.
+
+## Request Headers
+
+<ParamField header="Authorization" type="string" required>
+  Bearer token to introspect. Format: `Bearer YOUR_TOKEN`
+</ParamField>
+
+## Response
+
+<ResponseField name="active" type="boolean">
+  Whether the token is currently valid and active.
+</ResponseField>
+
+<ResponseField name="exp" type="number">
+  Unix timestamp of token expiration (seconds). Only present if token has an expiration date.
+</ResponseField>
+
+## Example Request
+
+```bash
+curl -X POST https://api.weaponx.io/v1/auth/introspect \
+  -H "Authorization: Bearer sk_prod_abc123def456..."
+```
+
+## Example Response (Valid Token)
+
+```json
+{
+  "active": true,
+  "exp": 1735689599
+}
+```
+
+## Example Response (Invalid Token)
+
+```json
+{
+  "active": false
+}
+```
+
+## Example Response (No Expiration)
+
+```json
+{
+  "active": true
+}
+```
+
+## Token Validation Checks
+
+A token is considered active if ALL of the following conditions are met:
+
+1. Token exists in the database
+2. Token matches the provided secret key
+3. Token `is_active` field is `true`
+4. Token has not been soft-deleted (`removed_at` is null)
+5. Token has not expired (if `expiration_date` is set)
+
+## Use Cases
+
+### Health Check
+
+Validate tokens periodically in your application:
+
+```typescript
+const response = await fetch('https://api.weaponx.io/v1/auth/introspect', {
+  method: 'POST',
+  headers: {
+    'Authorization': `Bearer ${token}`
+  }
+});
+
+const result = await response.json();
+if (!result.active) {
+  // Token is invalid - refresh or request new credentials
+}
+```
+
+### Check Expiration
+
+Warn users before token expiration:
+
+```typescript
+const result = await introspect(token);
+if (result.exp) {
+  const daysUntilExpiration = (result.exp * 1000 - Date.now()) / (1000 * 60 * 60 * 24);
+  if (daysUntilExpiration < 30) {
+    console.warn(`Token expires in ${Math.floor(daysUntilExpiration)} days`);
+  }
+}
+```
+
+## Error Responses
+
+### 401 Unauthorized
+
+```json
+{
+  "error": "Unauthorized",
+  "message": "Missing or malformed Authorization header. Expected: Bearer <token>"
+}
+```
+
+## Notes
+
+- This endpoint does NOT require any specific permissions - it validates the token itself
+- Invalid or expired tokens return `{"active": false}` rather than an error
+- The endpoint is designed for token validation, not authentication (other endpoints handle authentication)
+- Rate limiting applies to prevent token enumeration attacks

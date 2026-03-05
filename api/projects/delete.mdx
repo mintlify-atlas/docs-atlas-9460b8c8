@@ -1,0 +1,63 @@
+---
+title: Delete Project
+api: DELETE /v1/admin/projects/:reference
+description: Delete a project and all associated data
+---
+
+## Authentication
+
+Requires a token with `projects:write` permission.
+
+## Path Parameters
+
+<ParamField path="reference" type="string" required>
+  The unique reference identifier of the project to delete.
+</ParamField>
+
+## Response
+
+Returns `204 No Content` on successful deletion.
+
+## Example Request
+
+```bash
+curl -X DELETE https://api.weaponx.io/v1/admin/projects/my-app \
+  -H "Authorization: Bearer YOUR_TOKEN"
+```
+
+## Example Response
+
+No response body (204 status code).
+
+## Error Responses
+
+### 401 Unauthorized
+
+```json
+{
+  "error": "Unauthorized",
+  "message": "Invalid or missing authentication token"
+}
+```
+
+### 403 Forbidden
+
+```json
+{
+  "error": "Forbidden",
+  "message": "Insufficient permissions: projects:write required"
+}
+```
+
+### 404 Not Found
+
+```json
+{
+  "error": "Not Found",
+  "message": "Project not found"
+}
+```
+
+<Warning>
+  Deleting a project will permanently remove all associated configurations, rules, and authentication tokens. This action cannot be undone.
+</Warning>

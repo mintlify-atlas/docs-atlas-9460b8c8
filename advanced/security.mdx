@@ -1,0 +1,650 @@
+---
+title: "Security"
+description: "Secure your configurations with authentication, permissions, and best practices"
+---
+
+## Overview
+
+Weapon-X provides comprehensive security features to protect your configurations:
+
+- **API Key Authentication**: Bearer token-based authentication
+- **Role-Based Access Control (RBAC)**: Fine-grained permissions
+- **Token Expiration**: Automatic key expiration
+- **Active/Inactive States**: Instant key revocation
+- **Introspection**: Verify token validity
+
+## Authentication System
+
+### How It Works
+
+Every API request requires a Bearer token in the `Authorization` header:
+
+```bash
+curl https://api.weapon-x.dev/v1/evaluate \
+  -H "Authorization: Bearer wxk_live_abc123xyz"
+```
+
+The authentication middleware validates the token:
+
+```typescript
+// From: authorization.ts:22-87
+export function authorize(authRepo: IAuthenticationRepository, requiredPermissions: string[] = []) {
+  return async (req: Request, res: Response, next: NextFunction) => {
+    // 1. Extract Bearer token
+    const header = req.headers.authorization;
+    if (!header || !header.startsWith('Bearer ')) {
+      return res.status(401).json({
+        error: 'Unauthorized',
+        message: 'Missing or malformed Authorization header. Expected: Bearer <token>',
+      });
+    }
+
+    const token = header.slice(7).trim();
+    if (!token) {
+      return res.status(401).json({ error: 'Unauthorized', message: 'Empty bearer token.' });
+    }
+
+    // 2. Look up the authentication record
+    const auth = await authRepo.findBySecretKey(token);
+    if (!auth) {
+      return res.status(401).json({ error: 'Unauthorized', message: 'Invalid or revoked API key.' });
+    }
+
+    // 3. Check active status
+    if (!auth.is_active) {
+      return res.status(401).json({ error: 'Unauthorized', message: 'API key is deactivated.' });
+    }
+
+    // 4. Check expiration
+    if (auth.expiration_date && new Date(auth.expiration_date) < new Date()) {
+      return res.status(401).json({ error: 'Unauthorized', message: 'API key has expired.' });
+    }
+
+    // 5. Check permissions
+    if (requiredPermissions.length > 0) {
+      const rolePermissions = auth.role?.permissions ?? [];
+      const missing = requiredPermissions.filter(p => !rolePermissions.includes(p));
+
+      if (missing.length > 0) {
+        return res.status(403).json({
+          error: 'Forbidden',
+          message: `Missing required permissions: ${missing.join(', ')}`,
+        });
+      }
+    }
+
+    // 6. Attach auth to request
+    req.auth = auth;
+    next();
+  };
+}
+```
+
+**Validation steps:**
+1. Extract token from `Authorization: Bearer <token>`
+2. Look up token in the database
+3. Verify `is_active = true`
+4. Check `expiration_date` (if set)
+5. Verify role has required permissions
+6. Attach authentication to request context
+
+## Creating API Keys
+
+### Step 1: Create a Role
+
+Roles define what permissions are granted:
+
+```bash
+curl -X POST https://api.weapon-x.dev/v1/admin/roles \
+  -H "Authorization: Bearer YOUR_ADMIN_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "read-only",
+    "permissions": ["configs:read"]
+  }'
+```
+
+### Step 2: Create an API Key
+
+```bash
+curl -X POST https://api.weapon-x.dev/v1/admin/authentications \
+  -H "Authorization: Bearer YOUR_ADMIN_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "project_reference": "my-app",
+    "role_id": "role-123",
+    "secret_key": "wxk_live_abc123xyz",
+    "email": "api@example.com",
+    "description": "Production read-only key",
+    "is_active": true,
+    "expiration_date": "2026-12-31T23:59:59Z"
+  }'
+```
+
+**Response:**
+
+```json
+{
+  "data": {
+    "id": "auth-456",
+    "project_reference": "my-app",
+    "role_id": "role-123",
+    "secret_key": "wxk_live_abc123xyz",
+    "email": "api@example.com",
+    "description": "Production read-only key",
+    "is_active": true,
+    "expiration_date": "2026-12-31T23:59:59Z",
+    "created_at": "2026-03-05T10:00:00Z",
+    "updated_at": "2026-03-05T10:00:00Z",
+    "removed_at": null,
+    "role": {
+      "id": "role-123",
+      "name": "read-only",
+      "permissions": ["configs:read"]
+    }
+  }
+}
+```
+
+## Permission System
+
+Weapon-X uses granular permissions to control access:
+
+| Permission | Description | Typical Use Case |
+|------------|-------------|------------------|
+| `configs:read` | Read configurations and evaluate | Client applications, SDKs |
+| `configs:write` | Create and update configurations | CI/CD pipelines, admin tools |
+| `rules:write` | Create and update targeting rules | Feature management systems |
+| `projects:read` | List and view projects | Monitoring tools |
+| `projects:write` | Create and update projects | Infrastructure automation |
+| `roles:read` | View roles and permissions | Audit tools |
+| `roles:write` | Create and update roles | Admin consoles |
+| `authentications:read` | View API keys (excluding secrets) | Security audits |
+| `authentications:write` | Create and revoke API keys | Key rotation systems |
+
+### Route-Level Protection
+
+Each API endpoint requires specific permissions:
+
+```typescript
+// From: routes/index.ts:57-61
+router.post(
+  '/v1/admin/configs',
+  authorize(authRepo, ['configs:write']), // Requires configs:write
+  validate(createConfigSchema),
+  configController.create
+);
+
+router.post(
+  '/v1/evaluate',
+  authorize(authRepo, ['configs:read']), // Requires configs:read
+  validate(evaluateSchema),
+  evaluateController.evaluate
+);
+```
+
+### Checking Permissions
+
+The middleware checks if the role has **all** required permissions:
+
+```typescript
+// From: authorization.ts:69-79
+if (requiredPermissions.length > 0) {
+  const rolePermissions = auth.role?.permissions ?? [];
+  const missing = requiredPermissions.filter(p => !rolePermissions.includes(p));
+
+  if (missing.length > 0) {
+    return res.status(403).json({
+      error: 'Forbidden',
+      message: `Missing required permissions: ${missing.join(', ')}`,
+    });
+  }
+}
+```
+
+**Example:**
+
+```typescript
+// Role with only "configs:read"
+const role = { permissions: ['configs:read'] };
+
+// Attempting to write configs
+POST /v1/admin/configs
+// ❌ 403 Forbidden: Missing required permissions: configs:write
+
+// Evaluating configs
+POST /v1/evaluate
+// ✅ 200 OK: Has configs:read permission
+```
+
+## Token Expiration
+
+### Setting Expiration Dates
+
+API keys can have optional expiration dates:
+
+```bash
+curl -X POST https://api.weapon-x.dev/v1/admin/authentications \
+  -H "Authorization: Bearer YOUR_ADMIN_KEY" \
+  -d '{
+    "project_reference": "my-app",
+    "role_id": "role-123",
+    "secret_key": "wxk_temp_xyz789",
+    "email": "temp@example.com",
+    "description": "Temporary key for Q1 2026",
+    "expiration_date": "2026-03-31T23:59:59Z"
+  }'
+```
+
+### Expiration Validation
+
+```typescript
+// From: authorization.ts:60-66
+if (auth.expiration_date && new Date(auth.expiration_date) < new Date()) {
+  return res.status(401).json({
+    error: 'Unauthorized',
+    message: 'API key has expired.',
+  });
+}
+```
+
+**After expiration:**
+
+```bash
+curl https://api.weapon-x.dev/v1/evaluate \
+  -H "Authorization: Bearer wxk_temp_xyz789"
+
+# Response:
+{
+  "error": "Unauthorized",
+  "message": "API key has expired."
+}
+```
+
+### Updating Expiration
+
+Extend or remove expiration dates:
+
+```bash
+# Extend expiration
+curl -X PATCH https://api.weapon-x.dev/v1/admin/authentications/auth-456 \
+  -H "Authorization: Bearer YOUR_ADMIN_KEY" \
+  -d '{ "expiration_date": "2027-12-31T23:59:59Z" }'
+
+# Remove expiration (never expires)
+curl -X PATCH https://api.weapon-x.dev/v1/admin/authentications/auth-456 \
+  -H "Authorization: Bearer YOUR_ADMIN_KEY" \
+  -d '{ "expiration_date": null }'
+```
+
+## Revoking API Keys
+
+### Deactivate a Key
+
+Instantly revoke access without deleting the record:
+
+```bash
+curl -X PATCH https://api.weapon-x.dev/v1/admin/authentications/auth-456 \
+  -H "Authorization: Bearer YOUR_ADMIN_KEY" \
+  -d '{ "is_active": false }'
+```
+
+```typescript
+// From: authorization.ts:53-58
+if (!auth.is_active) {
+  return res.status(401).json({
+    error: 'Unauthorized',
+    message: 'API key is deactivated.',
+  });
+}
+```
+
+### Delete a Key
+
+Permanently remove the API key:
+
+```bash
+curl -X DELETE https://api.weapon-x.dev/v1/admin/authentications/auth-456 \
+  -H "Authorization: Bearer YOUR_ADMIN_KEY"
+```
+
+<Warning>
+Deleted keys cannot be recovered. For temporary revocation, use `is_active: false` instead.
+</Warning>
+
+## Token Introspection
+
+Verify token validity before making requests:
+
+```bash
+curl https://api.weapon-x.dev/v1/introspect \
+  -H "Authorization: Bearer wxk_live_abc123xyz"
+```
+
+**Response (valid token):**
+
+```json
+{
+  "active": true,
+  "exp": 1735689599
+}
+```
+
+**Response (invalid token):**
+
+```json
+{
+  "active": false
+}
+```
+
+### Implementation
+
+```typescript
+// From: introspectAuthentication.usecase.ts:11-27
+async execute(token: string): Promise<IntrospectResult> {
+  const auth = await this.authRepo.findBySecretKey(token);
+
+  if (!auth || !auth.is_active) {
+    return { active: false };
+  }
+
+  if (auth.expiration_date && new Date(auth.expiration_date) < new Date()) {
+    return { active: false };
+  }
+
+  const exp = auth.expiration_date
+    ? Math.floor(new Date(auth.expiration_date).getTime() / 1000)
+    : undefined;
+
+  return { active: true, ...(exp !== undefined && { exp }) };
+}
+```
+
+**Use in client:**
+
+```typescript
+import axios from 'axios';
+
+const token = 'wxk_live_abc123xyz';
+
+const { data } = await axios.get('https://api.weapon-x.dev/v1/introspect', {
+  headers: { Authorization: `Bearer ${token}` }
+});
+
+if (!data.active) {
+  console.error('Token is invalid or expired');
+  // Refresh or regenerate token
+}
+
+if (data.exp && data.exp < Date.now() / 1000) {
+  console.warn('Token expires soon:', new Date(data.exp * 1000));
+}
+```
+
+## SDK Authentication
+
+### Client-Side (Public Environments)
+
+Use **read-only** keys with `configs:read` permission:
+
+```typescript
+import { WeaponX } from '@weapon-x/sdk';
+
+const client = new WeaponX({
+  baseUrl: 'https://api.weapon-x.dev',
+  headers: {
+    Authorization: 'Bearer wxk_live_readonly_abc123'
+  }
+});
+
+await client.sync('my-app');
+const result = client.evaluate({
+  keys: ['feature'],
+  filters: { userId: user.id }
+});
+```
+
+<Warning>
+Never expose keys with `configs:write` or `rules:write` permissions in client-side code. These should only be used in secure server environments.
+</Warning>
+
+### Server-Side (Admin Operations)
+
+Use keys with elevated permissions for configuration management:
+
+```typescript
+import { WeaponX } from '@weapon-x/sdk';
+
+const adminClient = new WeaponX({
+  baseUrl: 'https://api.weapon-x.dev',
+  headers: {
+    Authorization: 'Bearer wxk_live_admin_xyz789'
+  }
+});
+
+// Create new configuration
+await adminClient.createConfig({
+  project_reference: 'my-app',
+  key: 'new_feature',
+  type: 'BOOLEAN',
+  default_value: false,
+  is_active: true
+});
+```
+
+## Best Practices
+
+### 1. Use Least Privilege
+
+Grant only the permissions needed:
+
+```json
+// ✅ Good: Client app only needs to read
+{
+  "name": "client-app",
+  "permissions": ["configs:read"]
+}
+
+// ❌ Bad: Overly permissive
+{
+  "name": "client-app",
+  "permissions": ["configs:read", "configs:write", "rules:write"]
+}
+```
+
+### 2. Rotate Keys Regularly
+
+Set expiration dates and rotate keys periodically:
+
+```bash
+# Create new key with 90-day expiration
+EXPIRY=$(date -u -d '+90 days' +%Y-%m-%dT%H:%M:%SZ)
+
+curl -X POST https://api.weapon-x.dev/v1/admin/authentications \
+  -H "Authorization: Bearer YOUR_ADMIN_KEY" \
+  -d "{
+    \"project_reference\": \"my-app\",
+    \"role_id\": \"role-123\",
+    \"secret_key\": \"wxk_live_new_key\",
+    \"expiration_date\": \"$EXPIRY\"
+  }"
+```
+
+### 3. Use Environment-Specific Keys
+
+Separate keys for dev, staging, and production:
+
+```bash
+# Development (expires quickly)
+wxk_dev_short_term_abc123
+
+# Staging (longer expiration)
+wxk_staging_xyz789
+
+# Production (monitored, no expiration)
+wxk_live_production_def456
+```
+
+### 4. Store Keys Securely
+
+Never commit keys to version control:
+
+```bash
+# .env
+WEAPON_X_API_KEY=wxk_live_abc123xyz
+
+# .gitignore
+.env
+.env.local
+.env.*.local
+```
+
+Use secret management systems in production:
+
+```typescript
+// AWS Secrets Manager
+const secret = await secretsManager.getSecretValue({ SecretId: 'weapon-x/api-key' });
+const apiKey = JSON.parse(secret.SecretString).WEAPON_X_API_KEY;
+
+const client = new WeaponX({
+  baseUrl: process.env.WEAPON_X_URL,
+  headers: { Authorization: `Bearer ${apiKey}` }
+});
+```
+
+### 5. Monitor API Usage
+
+Track which keys are making requests:
+
+```typescript
+// Log authentication in middleware
+req.auth = auth; // Attached by authorize()
+
+console.log('API Request:', {
+  endpoint: req.path,
+  method: req.method,
+  authId: req.auth?.id,
+  email: req.auth?.email,
+  role: req.auth?.role?.name,
+  timestamp: new Date().toISOString()
+});
+```
+
+### 6. Implement Key Rotation Workflow
+
+```typescript
+async function rotateApiKey(oldKeyId: string) {
+  // 1. Create new key
+  const newKey = await createAuthentication({
+    project_reference: 'my-app',
+    role_id: 'role-123',
+    secret_key: generateSecureKey(),
+    email: 'api@example.com',
+    description: 'Rotated key',
+    expiration_date: addDays(new Date(), 90)
+  });
+
+  // 2. Update clients to use new key
+  await updateClientConfigs(newKey.secret_key);
+
+  // 3. Wait for propagation (e.g., 24 hours)
+  await sleep(24 * 60 * 60 * 1000);
+
+  // 4. Deactivate old key
+  await updateAuthentication(oldKeyId, { is_active: false });
+
+  // 5. Delete old key after grace period
+  await sleep(7 * 24 * 60 * 60 * 1000);
+  await deleteAuthentication(oldKeyId);
+}
+```
+
+### 7. Audit API Keys
+
+Regularly review active keys:
+
+```bash
+curl https://api.weapon-x.dev/v1/admin/projects/my-app/authentications \
+  -H "Authorization: Bearer YOUR_ADMIN_KEY"
+```
+
+Check for:
+- Keys without expiration dates
+- Unused keys (no recent activity)
+- Keys with excessive permissions
+- Keys owned by former team members
+
+## Error Responses
+
+### 401 Unauthorized
+
+**Missing token:**
+```json
+{
+  "error": "Unauthorized",
+  "message": "Missing or malformed Authorization header. Expected: Bearer <token>"
+}
+```
+
+**Invalid token:**
+```json
+{
+  "error": "Unauthorized",
+  "message": "Invalid or revoked API key."
+}
+```
+
+**Expired token:**
+```json
+{
+  "error": "Unauthorized",
+  "message": "API key has expired."
+}
+```
+
+**Deactivated token:**
+```json
+{
+  "error": "Unauthorized",
+  "message": "API key is deactivated."
+}
+```
+
+### 403 Forbidden
+
+**Insufficient permissions:**
+```json
+{
+  "error": "Forbidden",
+  "message": "Missing required permissions: configs:write, rules:write"
+}
+```
+
+## Security Checklist
+
+<Check>
+- [ ] Use HTTPS for all API requests
+- [ ] Store API keys in secure vaults (AWS Secrets Manager, HashiCorp Vault)
+- [ ] Never commit keys to version control
+- [ ] Use read-only keys in client applications
+- [ ] Set expiration dates on temporary keys
+- [ ] Rotate production keys every 90 days
+- [ ] Deactivate keys for former team members
+- [ ] Monitor API usage for anomalies
+- [ ] Use least privilege (minimal permissions)
+- [ ] Audit active keys quarterly
+- [ ] Implement automated key rotation
+- [ ] Use environment-specific keys (dev/staging/prod)
+</Check>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Rollout Strategies" icon="chart-line" href="/advanced/rollout-strategies">
+    Secure gradual rollouts with authentication
+  </Card>
+  <Card title="Targeting Rules" icon="crosshairs" href="/advanced/targeting-rules">
+    Protect targeting rules with permissions
+  </Card>
+</CardGroup>

@@ -1,0 +1,346 @@
+---
+title: 'Environments'
+description: 'Manage multi-region and multi-environment deployments'
+icon: 'globe'
+---
+
+## Overview
+
+Environments in Weapon-X enable you to manage configurations across multiple deployment regions, data centers, or logical environments. Each environment has its own API base URL, region identifier, and authentication credentials.
+
+<Info>
+Environments are optional but powerful for organizations with multi-region deployments or complex environment strategies.
+</Info>
+
+## Use Cases
+
+<CardGroup cols={2}>
+  <Card title="Multi-Region Deployments" icon="earth-americas">
+    Deploy the same application to US-East, EU-West, and AP-South with region-specific configurations
+  </Card>
+  <Card title="Environment Isolation" icon="lock">
+    Separate dev, staging, and production with different API endpoints and credentials
+  </Card>
+  <Card title="Edge Deployments" icon="network-wired">
+    Manage configurations for edge computing locations or CDN nodes
+  </Card>
+  <Card title="Multi-Cloud" icon="cloud">
+    Run Weapon-X instances on AWS, GCP, and Azure with unified management
+  </Card>
+</CardGroup>
+
+## Data Model
+
+```typescript
+interface Environment {
+  id: string;           // Unique identifier (max 100 chars)
+  label: string;        // Display name (max 255 chars)
+  region: string;       // Region identifier (max 100 chars)
+  api_base_url: string; // Base URL for API (max 500 chars)
+  api_key: string;      // Authentication key (max 512 chars)
+  created_at: string;   // ISO 8601 timestamp
+  updated_at: string;   // ISO 8601 timestamp
+}
+```
+
+### Field Descriptions
+
+- **`id`**: Unique identifier for the environment (e.g., `us-east-1`, `prod-eu`)
+- **`label`**: Human-readable name displayed in UIs (e.g., "US East (Production)")
+- **`region`**: Geographic or logical region (e.g., `us-east`, `europe`, `staging`)
+- **`api_base_url`**: Full base URL for the Weapon-X API in this environment
+- **`api_key`**: Authentication credentials for accessing this environment
+
+## Creating an Environment
+
+Use the Admin SDK to create a new environment:
+
+```typescript
+import { AdminClient } from '@weapon-x/sdk';
+
+const admin = new AdminClient({
+  baseUrl: 'https://api.weapon-x.io',
+  headers: { Authorization: 'Bearer YOUR_TOKEN' }
+});
+
+const environment = await admin.createEnvironment({
+  id: 'us-east-1',
+  label: 'US East (Production)',
+  region: 'us-east',
+  api_base_url: 'https://us-east.weapon-x.io',
+  api_key: 'env_prod_us_east_key_abc123'
+});
+```
+
+<Note>
+The `id` must be unique across all environments and cannot be changed after creation.
+</Note>
+
+## Managing Environments
+
+### Get an Environment
+
+```typescript
+const env = await admin.getEnvironment('us-east-1');
+console.log(env.label); // "US East (Production)"
+console.log(env.api_base_url); // "https://us-east.weapon-x.io"
+```
+
+### List All Environments
+
+```typescript
+const environments = await admin.listEnvironments('YOUR_TOKEN');
+
+environments.forEach(env => {
+  console.log(`${env.label} (${env.region}) - ${env.api_base_url}`);
+});
+```
+
+### Update an Environment
+
+All fields except `id` can be updated:
+
+```typescript
+const updated = await admin.updateEnvironment('us-east-1', {
+  label: 'US East (Production v2)',
+  api_base_url: 'https://us-east-v2.weapon-x.io'
+});
+```
+
+### Delete an Environment
+
+<Warning>
+Deleting an environment does NOT delete associated projects. Their `environment_id` will be set to `null`.
+</Warning>
+
+```typescript
+await admin.deleteEnvironment('us-east-1');
+```
+
+## Project Association
+
+Projects can be linked to environments to inherit configuration:
+
+```typescript
+// When creating a project (via direct database/API)
+// Note: The SDK's createProject doesn't currently expose environment_id
+// This is typically set at the database level
+
+// Schema relationship:
+// Project.environment_id → Environment.id
+```
+
+From the Prisma schema:
+
+```prisma
+model Environment {
+  id           String   @id @db.VarChar(100)
+  label        String   @db.VarChar(255)
+  region       String   @db.VarChar(100)
+  api_base_url String   @db.VarChar(500)
+  api_key      String   @db.VarChar(512)
+  created_at   DateTime @default(now()) @db.Timestamptz
+  updated_at   DateTime @updatedAt @db.Timestamptz
+
+  projects Project[] // One environment, many projects
+
+  @@map("environments")
+}
+
+model Project {
+  reference      String       @id
+  environment_id String?      // Optional foreign key
+  
+  environment Environment? @relation(
+    fields: [environment_id], 
+    references: [id], 
+    onDelete: SetNull  // Projects survive environment deletion
+  )
+}
+```
+
+## Multi-Region Architecture
+
+Here's a typical multi-region setup:
+
+```typescript
+// 1. Create environments for each region
+const usEast = await admin.createEnvironment({
+  id: 'us-east-prod',
+  label: 'US East (Production)',
+  region: 'us-east-1',
+  api_base_url: 'https://us-east.weapon-x.io',
+  api_key: 'env_us_east_key'
+});
+
+const euWest = await admin.createEnvironment({
+  id: 'eu-west-prod',
+  label: 'EU West (Production)',
+  region: 'eu-west-1',
+  api_base_url: 'https://eu-west.weapon-x.io',
+  api_key: 'env_eu_west_key'
+});
+
+// 2. Each region has its own Weapon-X instance
+// 3. Projects in each region connect to their local environment
+// 4. Configurations can be replicated or differ by region
+```
+
+<Info>
+Each environment typically represents a separate Weapon-X deployment with its own database and API.
+</Info>
+
+## Environment-Aware SDK Usage
+
+When using the SDK with multiple environments:
+
+```typescript
+// Initialize SDK for a specific environment
+const usEastClient = new AdminClient({
+  baseUrl: 'https://us-east.weapon-x.io',
+  headers: { Authorization: `Bearer ${usEastKey}` }
+});
+
+const euWestClient = new AdminClient({
+  baseUrl: 'https://eu-west.weapon-x.io',
+  headers: { Authorization: `Bearer ${euWestKey}` }
+});
+
+// Each client operates on its environment
+const usProjects = await usEastClient.listProjects(usEastKey);
+const euProjects = await euWestClient.listProjects(euWestKey);
+```
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Use consistent naming conventions">
+    Establish a standard format for environment IDs and labels:
+    
+    **Format**: `[region]-[stage]`
+    
+    Examples:
+    - `us-east-prod`, `us-east-staging`
+    - `eu-west-prod`, `eu-west-staging`
+    - `ap-south-prod`, `ap-south-staging`
+  </Accordion>
+  
+  <Accordion title="Separate logical and physical environments">
+    Distinguish between:
+    - **Physical environments**: Geographic regions (us-east, eu-west)
+    - **Logical environments**: Deployment stages (dev, staging, prod)
+    
+    You might create:
+    - `us-east-prod` (physical + logical)
+    - `us-east-staging` (physical + logical)
+  </Accordion>
+  
+  <Accordion title="Secure API keys properly">
+    Environment API keys grant access to that environment's API:
+    - Store keys in secure vaults (AWS Secrets Manager, HashiCorp Vault)
+    - Rotate keys regularly
+    - Use different keys for each environment
+    - Never commit keys to version control
+  </Accordion>
+  
+  <Accordion title="Document your environment topology">
+    Maintain documentation of:
+    - Which environments exist
+    - What regions they cover
+    - Which projects belong to each environment
+    - Network routing and latency considerations
+  </Accordion>
+</AccordionGroup>
+
+## Environment vs. Project Separation
+
+<Note>
+There are two approaches to managing deployment stages:
+
+**Option 1: Separate Projects**
+```
+my-app-dev (no environment)
+my-app-staging (no environment)
+my-app-prod (no environment)
+```
+
+**Option 2: Environments**
+```
+my-app (dev environment)
+my-app (staging environment)
+my-app (prod environment)
+```
+
+Most teams find separate projects simpler and more explicit.
+</Note>
+
+## Common Patterns
+
+### Pattern 1: Multi-Region Production
+
+```typescript
+// Same application deployed to multiple regions
+const regions = [
+  { id: 'us-prod', region: 'us-east-1', url: 'https://us.api.com' },
+  { id: 'eu-prod', region: 'eu-west-1', url: 'https://eu.api.com' },
+  { id: 'ap-prod', region: 'ap-south-1', url: 'https://ap.api.com' }
+];
+
+for (const r of regions) {
+  await admin.createEnvironment({
+    id: r.id,
+    label: `Production (${r.region})`,
+    region: r.region,
+    api_base_url: r.url,
+    api_key: generateKey()
+  });
+}
+```
+
+### Pattern 2: Edge Computing
+
+```typescript
+// CDN edge locations
+const edges = ['edge-us-west', 'edge-us-east', 'edge-eu', 'edge-ap'];
+
+for (const edge of edges) {
+  await admin.createEnvironment({
+    id: edge,
+    label: `Edge - ${edge}`,
+    region: edge,
+    api_base_url: `https://${edge}.weapon-x.io`,
+    api_key: generateEdgeKey(edge)
+  });
+}
+```
+
+## Database Schema
+
+Complete Prisma schema for environments:
+
+```prisma
+model Environment {
+  id           String   @id @db.VarChar(100)
+  label        String   @db.VarChar(255)
+  region       String   @db.VarChar(100)
+  api_base_url String   @db.VarChar(500)
+  api_key      String   @db.VarChar(512)
+  created_at   DateTime @default(now()) @db.Timestamptz
+  updated_at   DateTime @updatedAt @db.Timestamptz
+
+  projects Project[]
+
+  @@map("environments")
+}
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Create Projects" icon="folder-open" href="/concepts/projects">
+    Set up projects and associate them with environments
+  </Card>
+  <Card title="Multi-Region Guide" icon="earth-americas">
+    Learn advanced multi-region deployment strategies
+  </Card>
+</CardGroup>

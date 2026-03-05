@@ -1,0 +1,535 @@
+---
+title: 'Evaluation Modes'
+description: 'Remote vs. Sync evaluation: understand the trade-offs and when to use each'
+icon: 'bolt'
+---
+
+## Overview
+
+Weapon-X offers two evaluation modes for retrieving configuration values:
+
+1. **Remote Evaluation** - Real-time API calls to the server
+2. **Sync Evaluation** - Local evaluation using cached configurations
+
+Each mode has different performance characteristics, consistency guarantees, and use cases.
+
+<Info>
+Most applications start with Remote Evaluation for simplicity, then adopt Sync Evaluation for performance-critical scenarios.
+</Info>
+
+## Remote Evaluation
+
+Remote evaluation makes an HTTP request to the Weapon-X API for each evaluation:
+
+```typescript
+import { EvaluationClient } from '@weapon-x/sdk';
+
+const client = new EvaluationClient({
+  baseUrl: 'https://api.weapon-x.io',
+  headers: { Authorization: 'Bearer YOUR_SECRET_KEY' }
+});
+
+// Every call hits the API
+const result = await client.evaluate({
+  keys: ['feature_x', 'feature_y'],
+  filters: { user_id: 'user-123', country: 'US' },
+  identifier: 'user-123'
+});
+
+console.log(result);
+// {
+//   meta: { server_time: 1234567890 },
+//   data: {
+//     feature_x: { value: true, rule_id: '<uuid>', reason: 'MATCH' },
+//     feature_y: { value: false, rule_id: 'default', reason: 'FALLBACK' }
+//   }
+// }
+```
+
+### How It Works
+
+1. Client sends evaluation request to `/v1/evaluate` endpoint
+2. Server fetches configurations and rules from database
+3. Server evaluates all conditions and rollout percentages
+4. Server returns evaluation results
+5. Client receives typed results
+
+### Architecture
+
+```
+┌─────────────┐          ┌─────────────┐          ┌──────────┐
+│             │          │             │          │          │
+│  Your App   │ ────────▶│  Weapon-X   │ ────────▶│ Database │
+│             │  HTTPS   │     API     │   SQL    │          │
+└─────────────┘          └─────────────┘          └──────────┘
+                              │
+                              │ Evaluates rules
+                              │ Checks conditions
+                              │ Applies rollouts
+                              ▼
+                         Returns results
+```
+
+### Advantages
+
+<CardGroup cols={2}>
+  <Card title="Always Up-to-Date" icon="sync">
+    Configuration changes take effect immediately. No cache invalidation needed.
+  </Card>
+  <Card title="Simple Implementation" icon="code">
+    Just make an API call. No local state management or synchronization.
+  </Card>
+  <Card title="Accurate Analytics" icon="chart-line">
+    Server sees every evaluation for precise metrics and audit logs.
+  </Card>
+  <Card title="Reduced Client Complexity" icon="minimize">
+    No need to ship evaluation logic to the client.
+  </Card>
+</CardGroup>
+
+### Disadvantages
+
+<CardGroup cols={2}>
+  <Card title="Network Latency" icon="network-wired">
+    Every evaluation requires a round-trip to the server (typically 10-100ms).
+  </Card>
+  <Card title="API Dependency" icon="plug">
+    If the Weapon-X API is unreachable, evaluations fail.
+  </Card>
+  <Card title="Higher Costs" icon="dollar-sign">
+    More API calls = higher infrastructure and bandwidth costs.
+  </Card>
+  <Card title="Rate Limits" icon="gauge">
+    High-volume applications may hit rate limits.
+  </Card>
+</CardGroup>
+
+### When to Use Remote Evaluation
+
+✅ **Use Remote Evaluation when:**
+- You need instant configuration updates
+- Evaluation frequency is low (&lt;100 requests/second)
+- Network latency is acceptable (web applications)
+- You want simple implementation
+- Audit logging is critical
+
+❌ **Avoid Remote Evaluation when:**
+- Sub-millisecond latency is required
+- Evaluating configurations in hot paths (request handlers)
+- Network connectivity is unreliable
+- Handling thousands of evaluations per second
+
+## Sync Evaluation
+
+Sync evaluation caches configurations locally and evaluates rules client-side:
+
+```typescript
+import { SyncEvaluationClient } from '@weapon-x/sdk';
+
+const client = SyncEvaluationClient.getInstance({
+  baseUrl: 'https://api.weapon-x.io',
+  headers: { Authorization: 'Bearer YOUR_SECRET_KEY' }
+});
+
+// 1. Sync configurations once (initial load or on schedule)
+await client.sync('my-app-prod');
+
+// 2. Evaluate locally (no network call)
+const result = client.evaluate({
+  keys: ['feature_x', 'feature_y'],
+  filters: { user_id: 'user-123', country: 'US' },
+  identifier: 'user-123'
+});
+
+console.log(result);
+// {
+//   feature_x: { value: true, rule_id: '<uuid>', reason: 'MATCH' },
+//   feature_y: { value: false, rule_id: 'default', reason: 'FALLBACK' }
+// }
+```
+
+### How It Works
+
+1. **Sync Phase**: Fetch all configurations and rules from server
+   ```typescript
+   await client.sync('my-app-prod');
+   ```
+   - Calls `/v1/admin/projects/{reference}/configs`
+   - Downloads all configurations with rules
+   - Stores in local `Map<string, Config>`
+
+2. **Evaluation Phase**: Evaluate locally without network calls
+   ```typescript
+   const result = client.evaluate({ keys, filters, identifier });
+   ```
+   - Reads from local cache
+   - Evaluates conditions client-side
+   - Computes rollout hashes locally
+   - Returns results synchronously
+
+### Architecture
+
+```
+┌─────────────────────────────────────┐
+│          Your Application           │
+│                                     │
+│  ┌─────────────────────────────┐   │
+│  │ SyncEvaluationClient        │   │
+│  │                             │   │
+│  │  ┌──────────────────────┐   │   │
+│  │  │ Local Cache (Map)    │   │   │
+│  │  │ - Configurations     │   │   │
+│  │  │ - Rules              │   │   │
+│  │  │ - Validation Schemas │   │   │
+│  │  └──────────────────────┘   │   │
+│  │                             │   │
+│  │  evaluate() → local lookup  │   │
+│  └─────────────────────────────┘   │
+│            ▲                        │
+│            │ sync() periodically    │
+└────────────┼────────────────────────┘
+             │
+             │ HTTPS (infrequent)
+             ▼
+      ┌─────────────┐
+      │  Weapon-X   │
+      │     API     │
+      └─────────────┘
+```
+
+### Advantages
+
+<CardGroup cols={2}>
+  <Card title="Ultra-Low Latency" icon="gauge-high">
+    Evaluations complete in microseconds. No network overhead.
+  </Card>
+  <Card title="Offline Capability" icon="wifi-slash">
+    Works without network connectivity using cached data.
+  </Card>
+  <Card title="High Throughput" icon="rocket">
+    Handle millions of evaluations per second.
+  </Card>
+  <Card title="Reduced API Load" icon="server">
+    Fewer API calls = lower costs and rate limit concerns.
+  </Card>
+</CardGroup>
+
+### Disadvantages
+
+<CardGroup cols={2}>
+  <Card title="Stale Data" icon="clock">
+    Cache may be out of sync until next sync operation.
+  </Card>
+  <Card title="Memory Overhead" icon="memory">
+    All configurations stored in memory (usually negligible).
+  </Card>
+  <Card title="Sync Complexity" icon="gears">
+    Need to manage sync intervals and error handling.
+  </Card>
+  <Card title="No Server Analytics" icon="chart-line">
+    Server doesn't see individual evaluations (only sync calls).
+  </Card>
+</CardGroup>
+
+### When to Use Sync Evaluation
+
+✅ **Use Sync Evaluation when:**
+- Latency is critical (&lt;1ms required)
+- High evaluation volume (>1000/second)
+- Request handlers need feature flags (per-request evaluation)
+- Offline operation is needed
+- Reducing API costs is important
+
+❌ **Avoid Sync Evaluation when:**
+- Configuration changes must be instant
+- Memory is extremely constrained
+- Implementation complexity is a concern
+- Audit logging of every evaluation is required
+
+## Sync Strategies
+
+When using Sync Evaluation, you need a strategy for keeping data fresh:
+
+### Strategy 1: Periodic Sync
+
+Sync on a fixed interval:
+
+```typescript
+const client = SyncEvaluationClient.getInstance({ baseUrl, headers });
+
+// Initial sync
+await client.sync('my-app-prod');
+
+// Re-sync every 60 seconds
+setInterval(async () => {
+  try {
+    await client.sync('my-app-prod');
+    console.log('Configurations synced successfully');
+  } catch (error) {
+    console.error('Sync failed:', error);
+  }
+}, 60_000);
+```
+
+**Pros**: Simple, predictable
+**Cons**: Up to 60 seconds stale
+
+### Strategy 2: On-Demand Sync
+
+Sync when configurations change (webhook or polling):
+
+```typescript
+// Webhook endpoint
+app.post('/webhooks/weapon-x', async (req, res) => {
+  const { event, project_reference } = req.body;
+  
+  if (event === 'config.updated' || event === 'rule.updated') {
+    await client.sync(project_reference);
+    console.log('Synced after configuration change');
+  }
+  
+  res.sendStatus(200);
+});
+```
+
+**Pros**: Near-instant updates
+**Cons**: Requires webhook infrastructure
+
+### Strategy 3: Startup + Manual
+
+Sync on application startup and allow manual triggers:
+
+```typescript
+// On startup
+await client.sync('my-app-prod');
+
+// Manual refresh endpoint (for emergencies)
+app.post('/admin/sync-configs', async (req, res) => {
+  await client.sync('my-app-prod');
+  res.json({ status: 'synced' });
+});
+```
+
+**Pros**: Control over sync timing
+**Cons**: Requires manual intervention for updates
+
+### Strategy 4: Hybrid (Recommended)
+
+Combine periodic sync with on-demand triggers:
+
+```typescript
+class ConfigManager {
+  private syncInterval: NodeJS.Timeout;
+  
+  async start() {
+    // Initial sync
+    await this.sync();
+    
+    // Periodic sync (every 5 minutes)
+    this.syncInterval = setInterval(() => this.sync(), 5 * 60 * 1000);
+  }
+  
+  async sync() {
+    try {
+      await client.sync('my-app-prod');
+      console.log('Synced at', new Date().toISOString());
+    } catch (error) {
+      console.error('Sync failed:', error);
+      // Continue using cached data
+    }
+  }
+  
+  async forceSyncNow() {
+    clearInterval(this.syncInterval);
+    await this.sync();
+    this.syncInterval = setInterval(() => this.sync(), 5 * 60 * 1000);
+  }
+}
+```
+
+## Comparison Table
+
+| Aspect | Remote Evaluation | Sync Evaluation |
+|--------|------------------|------------------|
+| **Latency** | 10-100ms (network) | &lt;1ms (in-memory) |
+| **Consistency** | Always up-to-date | Eventually consistent |
+| **Network** | Required per call | Required for sync only |
+| **Throughput** | Limited by API | Millions/second |
+| **API Calls** | High | Low |
+| **Memory** | Minimal | Stores all configs |
+| **Offline** | ❌ Not supported | ✅ Supported |
+| **Analytics** | ✅ Server-side | ❌ Client-side only |
+| **Implementation** | Simple | Moderate complexity |
+
+## Code Implementation
+
+From the SDK source code:
+
+### Remote Evaluation Client
+
+```typescript
+// packages/sdk/src/evaluation-client.ts
+export class EvaluationClient {
+  private http: AxiosInstance;
+
+  constructor(options: WeaponXClientOptions) {
+    this.http = createHttpClient(options);
+  }
+
+  async evaluate(data: EvaluateRequest): Promise<EvaluateResponse> {
+    const { data: res } = await this.http.post<EvaluateResponse>(
+      '/v1/evaluate', 
+      data
+    );
+    return res;
+  }
+}
+```
+
+### Sync Evaluation Client
+
+```typescript
+// packages/sdk/src/sync-evaluation-client.ts (simplified)
+export class SyncEvaluationClient {
+  private cache: Map<string, Config> = new Map();
+
+  async sync(projectReference: string): Promise<void> {
+    const { data: res } = await this.http.get(
+      `/v1/admin/projects/${projectReference}/configs`
+    );
+    this.cache.clear();
+    for (const config of res.data) {
+      this.cache.set(config.key, config);
+    }
+  }
+
+  evaluate(data: EvaluateRequest): Record<string, EvaluationResult> {
+    const results: Record<string, EvaluationResult> = {};
+
+    for (const key of data.keys) {
+      const config = this.cache.get(key);
+      
+      if (!config || !config.is_active) {
+        results[key] = { value: null, rule_id: 'none', reason: 'DISABLED' };
+        continue;
+      }
+
+      // Evaluate rules locally
+      for (const rule of config.rules || []) {
+        if (this.allConditionsMatch(rule.conditions, data.filters)) {
+          if (this.isInRollout(rule, data.identifier)) {
+            results[key] = { 
+              value: rule.return_value, 
+              rule_id: rule.id, 
+              reason: 'MATCH' 
+            };
+            break;
+          }
+        }
+      }
+
+      // Fallback to default
+      if (!results[key]) {
+        results[key] = { 
+          value: config.default_value, 
+          rule_id: 'default', 
+          reason: 'FALLBACK' 
+        };
+      }
+    }
+
+    return results;
+  }
+}
+```
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Start with Remote, optimize with Sync">
+    Begin with Remote Evaluation for simplicity. Profile your application and switch to Sync Evaluation only where latency matters:
+    ```typescript
+    // Non-critical paths: Remote
+    const settings = await remoteClient.evaluate({ keys: ['settings'] });
+    
+    // Hot path (per-request): Sync
+    const featureFlag = syncClient.evaluate({ keys: ['feature_x'] });
+    ```
+  </Accordion>
+  
+  <Accordion title="Use Sync for request handlers">
+    If you evaluate feature flags in HTTP request handlers, use Sync Evaluation to avoid adding network latency:
+    ```typescript
+    app.get('/api/data', (req, res) => {
+      // Fast: less than 1ms
+      const flags = syncClient.evaluate({
+        keys: ['enable_cache', 'rate_limit'],
+        filters: { user_id: req.user.id }
+      });
+      
+      // Handle request with flags
+    });
+    ```
+  </Accordion>
+  
+  <Accordion title="Monitor sync health">
+    Track sync success/failure and cache staleness:
+    ```typescript
+    let lastSyncTime: Date | null = null;
+    
+    async function sync() {
+      try {
+        await client.sync('my-app-prod');
+        lastSyncTime = new Date();
+        metrics.recordSyncSuccess();
+      } catch (error) {
+        metrics.recordSyncFailure();
+        // Alert if sync fails multiple times
+      }
+    }
+    
+    // Expose health endpoint
+    app.get('/health', (req, res) => {
+      const staleness = Date.now() - lastSyncTime.getTime();
+      res.json({ 
+        sync_age_seconds: staleness / 1000,
+        is_healthy: staleness < 10 * 60 * 1000 // 10 minutes
+      });
+    });
+    ```
+  </Accordion>
+  
+  <Accordion title="Handle sync failures gracefully">
+    If sync fails, continue using cached data rather than failing requests:
+    ```typescript
+    try {
+      await client.sync('my-app-prod');
+    } catch (error) {
+      console.error('Sync failed, using cached data:', error);
+      // Continue serving requests with stale cache
+    }
+    ```
+  </Accordion>
+  
+  <Accordion title="Singleton pattern for Sync client">
+    The SDK uses a singleton pattern to ensure one cache instance:
+    ```typescript
+    // Correct: Use getInstance()
+    const client = SyncEvaluationClient.getInstance({ baseUrl, headers });
+    
+    // Avoid: Creating multiple instances
+    // const client = new SyncEvaluationClient(); // Private constructor
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Evaluation Client SDK" icon="code" href="/sdk/evaluation-client">
+    Learn the Remote Evaluation API
+  </Card>
+  <Card title="Sync Evaluation SDK" icon="code" href="/sdk/sync-evaluation-client">
+    Learn the Sync Evaluation API
+  </Card>
+</CardGroup>

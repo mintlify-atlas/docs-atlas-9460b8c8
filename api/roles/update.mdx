@@ -1,0 +1,133 @@
+---
+title: Update Role
+api: PUT /v1/admin/roles/:id
+description: Update an existing role
+---
+
+## Authentication
+
+Requires a token with `roles:write` permission.
+
+## Path Parameters
+
+<ParamField path="id" type="string" required>
+  The unique UUID of the role to update.
+</ParamField>
+
+## Request Body
+
+At least one field must be provided.
+
+<ParamField body="name" type="string">
+  New role name (max 100 characters).
+</ParamField>
+
+<ParamField body="permissions" type="array">
+  New array of permission strings (max 100 characters each).
+</ParamField>
+
+## Response
+
+<ResponseField name="data" type="object">
+  The updated role object.
+  
+  <ResponseField name="id" type="string">
+    Unique role ID (UUID).
+  </ResponseField>
+  
+  <ResponseField name="name" type="string">
+    Updated role name.
+  </ResponseField>
+  
+  <ResponseField name="permissions" type="array">
+    Updated array of permission strings.
+  </ResponseField>
+  
+  <ResponseField name="created_at" type="string">
+    ISO 8601 timestamp of creation.
+  </ResponseField>
+  
+  <ResponseField name="updated_at" type="string">
+    ISO 8601 timestamp of last update.
+  </ResponseField>
+</ResponseField>
+
+## Example Request
+
+```bash
+curl -X PUT https://api.weaponx.io/v1/admin/roles/750e8400-e29b-41d4-a716-446655440002 \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "permissions": [
+      "projects:read",
+      "configs:read",
+      "configs:write",
+      "rules:write",
+      "environments:read"
+    ]
+  }'
+```
+
+## Example Response
+
+```json
+{
+  "data": {
+    "id": "750e8400-e29b-41d4-a716-446655440002",
+    "name": "developer",
+    "permissions": [
+      "projects:read",
+      "configs:read",
+      "configs:write",
+      "rules:write",
+      "environments:read"
+    ],
+    "created_at": "2026-03-05T10:30:00Z",
+    "updated_at": "2026-03-05T11:45:00Z"
+  }
+}
+```
+
+## Error Responses
+
+### 400 Bad Request
+
+```json
+{
+  "error": "Validation Error",
+  "details": [
+    {
+      "message": "At least one field must be provided",
+      "path": []
+    }
+  ]
+}
+```
+
+### 401 Unauthorized
+
+```json
+{
+  "error": "Unauthorized",
+  "message": "Invalid or missing authentication token"
+}
+```
+
+### 403 Forbidden
+
+```json
+{
+  "error": "Forbidden",
+  "message": "Insufficient permissions: roles:write required"
+}
+```
+
+### 404 Not Found
+
+```json
+{
+  "error": "Not Found",
+  "message": "Role not found"
+}
+```

@@ -1,0 +1,427 @@
+---
+title: 'Audit Logs'
+description: 'Track changes, maintain compliance, and monitor system activity'
+---
+
+## Overview
+
+Weapon-X automatically logs all configuration and rule changes in the audit log system. Each log entry captures who made the change, what was changed, and the before/after values for full traceability.
+
+## Audit Log Model
+
+Audit logs are stored in the `AuditLog` model:
+
+```typescript
+interface AuditLog {
+  id: string;                  // Unique identifier (UUID)
+  project_reference: string;   // Associated project
+  authentication_id: string;   // Token that performed the action
+  action: AuditAction;         // CREATE, UPDATE, or DELETE
+  entity_type: AuditEntityType; // CONFIGURATION or RULE
+  entity_id: string;           // UUID of the affected entity
+  actor_email: string;         // Email from the authentication token
+  previous_value: unknown;     // State before the change
+  new_value: unknown;          // State after the change
+  metadata: unknown;           // Additional context
+  created_at: Date;            // Timestamp of the action
+}
+```
+
+## Audit Actions
+
+Three action types are tracked:
+
+<ParamField path="CREATE" type="action">
+  A new configuration or rule was created
+</ParamField>
+
+<ParamField path="UPDATE" type="action">
+  An existing configuration or rule was modified
+</ParamField>
+
+<ParamField path="DELETE" type="action">
+  A configuration or rule was deleted
+</ParamField>
+
+## Tracked Entities
+
+Currently, audit logs track changes to:
+
+<ParamField path="CONFIGURATION" type="entity">
+  Feature flag configurations (type, default value, active status, etc.)
+</ParamField>
+
+<ParamField path="RULE" type="entity">
+  Conditional rules attached to configurations
+</ParamField>
+
+<Info>
+  Future versions may expand audit logging to include authentication tokens, roles, and projects.
+</Info>
+
+## What Gets Logged
+
+### Configuration Changes
+
+When you create, update, or delete a configuration, the audit log captures:
+
+- **action**: `CREATE`, `UPDATE`, or `DELETE`
+- **entity_type**: `CONFIGURATION`
+- **entity_id**: The configuration's UUID
+- **actor_email**: Email from the authentication token
+- **previous_value**: The configuration's state before the change (empty for CREATE)
+- **new_value**: The configuration's state after the change (empty for DELETE)
+
+**Example audit entry for creating a configuration:**
+
+```json
+{
+  "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+  "project_reference": "my-project",
+  "authentication_id": "550e8400-e29b-41d4-a716-446655440000",
+  "action": "CREATE",
+  "entity_type": "CONFIGURATION",
+  "entity_id": "123e4567-e89b-12d3-a456-426614174000",
+  "actor_email": "engineer@company.com",
+  "previous_value": {},
+  "new_value": {
+    "key": "feature.new_dashboard",
+    "type": "BOOLEAN",
+    "default_value": false,
+    "is_active": true
+  },
+  "metadata": {},
+  "created_at": "2026-03-05T10:30:00Z"
+}
+```
+
+### Rule Changes
+
+When you create, update, or delete a rule, the audit log captures:
+
+- **action**: `CREATE`, `UPDATE`, or `DELETE`
+- **entity_type**: `RULE`
+- **entity_id**: The rule's UUID
+- **actor_email**: Email from the authentication token
+- **previous_value**: The rule's state before the change
+- **new_value**: The rule's state after the change
+
+**Example audit entry for updating a rule:**
+
+```json
+{
+  "id": "b2c3d4e5-f6a7-8901-bcde-f12345678901",
+  "project_reference": "my-project",
+  "authentication_id": "550e8400-e29b-41d4-a716-446655440000",
+  "action": "UPDATE",
+  "entity_type": "RULE",
+  "entity_id": "234f5678-f90c-23e4-b567-537725285111",
+  "actor_email": "engineer@company.com",
+  "previous_value": {
+    "name": "Premium users in US",
+    "conditions": [
+      { "attribute": "country", "operator": "EQUALS", "value": "US" }
+    ],
+    "return_value": true,
+    "rollout_percentage": 50
+  },
+  "new_value": {
+    "name": "Premium users in US",
+    "conditions": [
+      { "attribute": "country", "operator": "EQUALS", "value": "US" }
+    ],
+    "return_value": true,
+    "rollout_percentage": 100
+  },
+  "metadata": {},
+  "created_at": "2026-03-05T14:15:00Z"
+}
+```
+
+## Audit Service
+
+The audit service in `/server/src/services/audit.service.ts:9` handles log creation:
+
+```typescript
+class AuditService {
+  log(
+    ctx: AuditContext,
+    action: AuditAction,
+    entityType: AuditEntityType,
+    entityId: string,
+    previousValue: unknown = {},
+    newValue: unknown = {},
+    metadata: unknown = {},
+  ): void {
+    // Asynchronously create audit log
+    // Errors are caught to avoid disrupting main flow
+  }
+}
+```
+
+<Note>
+  Audit logging is **non-blocking**. If audit log creation fails, the original operation (create/update/delete) still succeeds. Errors are logged to stderr.
+</Note>
+
+## Viewing Audit Logs
+
+While Weapon-X doesn't currently expose audit log endpoints in the API routes, you can query them directly from the database:
+
+### By Project
+
+```typescript
+auditRepo.findByProject(projectReference: string)
+```
+
+Returns all audit logs for a specific project.
+
+### By Entity
+
+```typescript
+auditRepo.findByEntity(entityType: string, entityId: string)
+```
+
+Returns all audit logs for a specific configuration or rule.
+
+<Info>
+  **Future Enhancement**: Public API endpoints for querying audit logs will be added in a future release.
+</Info>
+
+## Use Cases
+
+<CardGroup cols={2}>
+  <Card title="Change Tracking" icon="timeline">
+    See who changed what and when for any configuration or rule
+  </Card>
+  
+  <Card title="Compliance" icon="file-certificate">
+    Maintain audit trails for regulatory requirements (SOC2, GDPR, etc.)
+  </Card>
+  
+  <Card title="Debugging" icon="bug">
+    Trace configuration issues back to specific changes
+  </Card>
+  
+  <Card title="Security" icon="shield">
+    Detect unauthorized or suspicious changes to your feature flags
+  </Card>
+</CardGroup>
+
+## Audit Log Retention
+
+Audit logs are stored indefinitely by default. Consider implementing a retention policy based on your compliance requirements:
+
+<Steps>
+  <Step title="Define Retention Period">
+    Determine how long audit logs must be kept (e.g., 90 days, 1 year, 7 years)
+  </Step>
+  
+  <Step title="Archive Old Logs">
+    Export logs older than your retention period to cold storage
+  </Step>
+  
+  <Step title="Purge Archived Logs">
+    Delete archived logs from the database to manage storage costs
+  </Step>
+</Steps>
+
+## Audit Context
+
+The audit service requires an `AuditContext` to create log entries:
+
+```typescript
+interface AuditContext {
+  auth: AuthenticationEntity;  // The token that made the request
+  projectReference: string;    // The project being modified
+}
+```
+
+This context is automatically populated by the authorization middleware and passed to controllers.
+
+## Example: Configuration Update with Audit
+
+From `/server/src/controllers/config.controller.ts:16`:
+
+```typescript
+const updatedConfig = await this.updateConfigUseCase.execute(id, req.body);
+
+// Log the change
+this.auditService.log(
+  {
+    auth: req.auth!,
+    projectReference: updatedConfig.project_reference
+  },
+  'UPDATE',
+  'CONFIGURATION',
+  updatedConfig.id,
+  previousConfig,  // State before update
+  updatedConfig    // State after update
+);
+```
+
+## Example: Rule Creation with Audit
+
+From `/server/src/controllers/rule.controller.ts:17`:
+
+```typescript
+const newRule = await this.assignRuleUseCase.execute(configKey, ruleData);
+
+// Log the creation
+this.auditService.log(
+  {
+    auth: req.auth!,
+    projectReference: req.body.project_reference
+  },
+  'CREATE',
+  'RULE',
+  newRule.id,
+  {},          // No previous value for creation
+  newRule      // The created rule
+);
+```
+
+## Querying Audit Logs
+
+Audit logs can be queried using the repository interface:
+
+```typescript
+interface IAuditLogRepository {
+  create(data: CreateAuditLogDTO): Promise<AuditLogEntity>;
+  findByEntity(entityType: string, entityId: string): Promise<AuditLogEntity[]>;
+  findByProject(projectReference: string): Promise<AuditLogEntity[]>;
+}
+```
+
+### Find All Changes to a Configuration
+
+```typescript
+const logs = await auditRepo.findByEntity('CONFIGURATION', configId);
+```
+
+### Find All Changes in a Project
+
+```typescript
+const logs = await auditRepo.findByProject('my-project');
+```
+
+## Database Schema
+
+From `/server/prisma/schema.prisma:133`:
+
+```prisma
+model AuditLog {
+  id                  String          @id @default(uuid()) @db.Uuid
+  project_reference   String          @db.VarChar(100)
+  authentication_id   String          @db.Uuid
+  action              AuditAction
+  entity_type         AuditEntityType
+  entity_id           String          @db.Uuid
+  actor_email         String          @db.VarChar(255)
+  previous_value      Json            @default("{}")
+  new_value           Json            @default("{}")
+  metadata            Json            @default("{}")
+  created_at          DateTime        @default(now()) @db.Timestamptz
+
+  project Project        @relation(fields: [project_reference], references: [reference], onDelete: Cascade)
+  actor   Authentication @relation(fields: [authentication_id], references: [id])
+
+  @@index([project_reference])
+  @@index([authentication_id])
+  @@index([entity_type, entity_id])
+  @@map("audit_logs")
+}
+```
+
+### Indexes
+
+Three indexes optimize audit log queries:
+
+1. **project_reference**: Fast lookups by project
+2. **authentication_id**: Fast lookups by actor
+3. **entity_type + entity_id**: Fast lookups for a specific entity's history
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Regular Reviews" icon="magnifying-glass">
+    Periodically review audit logs for unexpected changes or security issues.
+  </Accordion>
+  
+  <Accordion title="Alert on Critical Changes" icon="bell">
+    Set up monitoring to alert when production configurations are modified.
+  </Accordion>
+  
+  <Accordion title="Export for Compliance" icon="file-export">
+    Regularly export audit logs to meet regulatory retention requirements.
+  </Accordion>
+  
+  <Accordion title="Correlation with Incidents" icon="link">
+    When debugging issues, check audit logs to see what changed recently.
+  </Accordion>
+  
+  <Accordion title="Actor Identification" icon="user-tag">
+    Use meaningful email addresses in authentication tokens to identify who made changes.
+  </Accordion>
+</AccordionGroup>
+
+## Future Enhancements
+
+Planned improvements to the audit log system:
+
+<CardGroup cols={2}>
+  <Card title="Public API Endpoints" icon="api">
+    Expose REST endpoints for querying audit logs
+  </Card>
+  
+  <Card title="Webhook Notifications" icon="webhook">
+    Send real-time notifications when changes occur
+  </Card>
+  
+  <Card title="Expanded Coverage" icon="expand">
+    Log changes to authentications, roles, and projects
+  </Card>
+  
+  <Card title="Advanced Filtering" icon="filter">
+    Filter logs by date range, action type, or actor
+  </Card>
+</CardGroup>
+
+## Compliance Considerations
+
+### SOC 2 Type II
+
+- **Access Control**: Audit logs track which tokens (and roles) performed which actions
+- **Change Management**: Complete history of configuration changes
+- **Monitoring**: Actor email identifies who made changes
+
+### GDPR
+
+- **Right to Explanation**: Audit logs show why data was changed (via actor identification)
+- **Data Retention**: Implement retention policies based on legal requirements
+- **Access Logging**: Track who accessed and modified configurations
+
+### HIPAA
+
+- **Audit Controls**: Comprehensive logging of all configuration changes
+- **Person or Entity Authentication**: Actor email links changes to individuals
+- **Integrity Controls**: Previous/new values ensure change integrity
+
+<Warning>
+  Consult with your legal and compliance teams to ensure audit logging meets your specific regulatory requirements.
+</Warning>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Authentication" icon="key" href="/platform/authentication">
+    Learn how authentication tokens are used in audit logs
+  </Card>
+  
+  <Card title="Roles & Permissions" icon="shield" href="/platform/roles-permissions">
+    Understand how roles control who can make changes
+  </Card>
+  
+  <Card title="Dashboard" icon="gauge" href="/platform/dashboard">
+    Return to the platform overview
+  </Card>
+</CardGroup>

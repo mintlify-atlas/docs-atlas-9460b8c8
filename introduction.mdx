@@ -1,0 +1,122 @@
+---
+title: Introduction
+description: Advanced feature flag and configuration management system with zero-latency evaluation capabilities
+---
+
+<div className="bg-white dark:bg-gray-900 py-12">
+  <div className="max-w-5xl mx-auto px-4">
+    <div className="text-center mb-12">
+      <h1 className="text-5xl font-bold text-gray-900 dark:text-white mb-4" style={{ fontFamily: 'Inter' }}>
+        Weapon-X
+      </h1>
+      <p className="text-xl text-gray-600 dark:text-gray-300 mb-8" style={{ fontFamily: 'Inter' }}>
+        Advanced feature flag and configuration management system with zero-latency evaluation capabilities
+      </p>
+      <div className="flex justify-center gap-4">
+        <a 
+          href="/quickstart" 
+          className="px-6 py-3 text-sm font-semibold text-gray-900 bg-[#e6e6e6] rounded-md hover:bg-gray-300 transition-colors"
+          style={{ fontFamily: 'Inter', borderRadius: '6px' }}
+        >
+          Get Started
+        </a>
+        <a 
+          href="https://github.com/LuchoBazz/weapon-x" 
+          className="px-6 py-3 text-sm font-semibold text-gray-900 border border-gray-300 rounded-md hover:bg-gray-50 transition-colors"
+          style={{ fontFamily: 'Inter', borderRadius: '6px' }}
+        >
+          View on GitHub
+        </a>
+      </div>
+    </div>
+  </div>
+</div>
+
+## What is Weapon-X?
+
+Weapon-X is a high-performance, centralized control system designed to manage application configurations and feature toggles across distributed environments. Unlike standard feature flag systems that suffer from network latency, Weapon-X utilizes a dual-mode evaluation strategy to deliver instant feature decisions.
+
+### Key Capabilities
+
+<CardGroup cols={2}>
+  <Card title="Zero-Latency Evaluation" icon="bolt">
+    Client-side evaluation with cryptographic sync ensures features deploy instantly without network round-trips
+  </Card>
+  <Card title="Server-Side Control" icon="server">
+    Remote evaluation for secure, audit-logged decisions with full control from your backend
+  </Card>
+  <Card title="Multi-Environment Support" icon="layer-group">
+    Manage configurations across development, staging, and production environments seamlessly
+  </Card>
+  <Card title="Advanced Targeting" icon="crosshairs">
+    Target specific user segments with conditional rules based on custom attributes
+  </Card>
+  <Card title="Rollout Strategies" icon="chart-line">
+    Percentage-based rollouts and gradual feature releases to minimize risk
+  </Card>
+  <Card title="Audit Logging" icon="file-lines">
+    Complete audit trail of all configuration changes and evaluations
+  </Card>
+</CardGroup>
+
+## How It Works
+
+Weapon-X provides two evaluation modes to match your performance and security requirements:
+
+### Remote Evaluation
+
+The server-side evaluation mode processes feature flag decisions on your backend, providing:
+
+- **Secure evaluation** - Sensitive logic stays on the server
+- **Audit logging** - Track every evaluation decision
+- **Real-time updates** - Changes take effect immediately
+- **Centralized control** - Manage everything from the dashboard
+
+### Sync Evaluation (Zero-Latency)
+
+The client-side evaluation mode downloads configurations once and evaluates locally:
+
+- **Zero network latency** - No API calls during evaluation
+- **Offline capability** - Works without network connectivity
+- **Reduced server load** - Evaluation happens on the client
+- **Cryptographic integrity** - Configs are signed and verified
+
+## Architecture
+
+Weapon-X is built on a modern, scalable architecture:
+
+- **Frontend Dashboard** - React with Vite, Tailwind CSS, and shadcn/ui components
+- **REST API Backend** - Node.js with Express and Prisma ORM
+- **Database** - PostgreSQL for reliable data persistence
+- **TypeScript SDK** - Fully-typed SDK for admin operations and evaluations
+- **Docker Support** - Containerized deployment for easy scaling
+
+## Use Cases
+
+Weapon-X excels in scenarios where feature control and configuration management are critical:
+
+- **Progressive Rollouts** - Release features to a percentage of users to minimize risk
+- **A/B Testing** - Test different variations with targeted user segments
+- **Kill Switches** - Instantly disable features in production without deploying code
+- **Environment Parity** - Maintain consistent configurations across environments
+- **Multi-Tenancy** - Manage feature access per customer or organization
+- **Configuration Management** - Store and retrieve application settings dynamically
+
+## Getting Started
+
+Ready to deploy Weapon-X? Follow our quickstart guide to get up and running in minutes.
+
+<CardGroup cols={2}>
+  <Card title="Quickstart" icon="rocket" href="/quickstart">
+    Set up Weapon-X locally and deploy your first feature flag
+  </Card>
+  <Card title="Architecture" icon="sitemap" href="/architecture">
+    Understand the system design and components
+  </Card>
+  <Card title="Core Concepts" icon="book" href="/concepts/projects">
+    Learn about projects, environments, and configurations
+  </Card>
+  <Card title="SDK Integration" icon="code" href="/sdk/installation">
+    Integrate Weapon-X into your application with the TypeScript SDK
+  </Card>
+</CardGroup>

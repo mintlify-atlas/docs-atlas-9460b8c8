@@ -1,0 +1,86 @@
+---
+title: API Overview
+description: Introduction to the Weapon-X REST API
+---
+
+Weapon-X provides a RESTful API for managing feature flags, configurations, and evaluations.
+
+## Base URL
+
+All API requests should be made to:
+
+```
+https://api.weaponx.io
+```
+
+For local development:
+
+```
+http://localhost:3001
+```
+
+## API Versioning
+
+The API uses URL-based versioning. All endpoints are prefixed with `/v1/`.
+
+## Response Format
+
+All successful responses return data in the following format:
+
+```json
+{
+  "data": { ... }
+}
+```
+
+For list operations, the response includes an array:
+
+```json
+{
+  "data": [ ... ]
+}
+```
+
+## Error Handling
+
+Errors are returned with appropriate HTTP status codes and a JSON body:
+
+```json
+{
+  "error": "Error Type",
+  "message": "Detailed error message",
+  "details": [
+    {
+      "message": "Field-specific error",
+      "path": ["field_name"]
+    }
+  ]
+}
+```
+
+### Common Status Codes
+
+| Status Code | Description |
+|-------------|-------------|
+| `200` | Success |
+| `201` | Resource created |
+| `204` | Success with no content |
+| `400` | Bad request - validation error |
+| `401` | Unauthorized - invalid or missing authentication |
+| `403` | Forbidden - insufficient permissions |
+| `404` | Resource not found |
+| `500` | Internal server error |
+
+## Rate Limiting
+
+API requests are rate-limited to ensure service stability. Rate limit information is included in response headers.
+
+## SDK Support
+
+Weapon-X provides official SDKs for:
+
+- **TypeScript/JavaScript**: Full admin and evaluation client support
+- **Python**: Coming soon
+- **Go**: Coming soon
+
+See the [SDK documentation](/sdk/typescript) for implementation details.

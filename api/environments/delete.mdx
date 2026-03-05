@@ -1,0 +1,63 @@
+---
+title: Delete Environment
+api: DELETE /v1/admin/environments/:id
+description: Delete an environment
+---
+
+## Authentication
+
+Requires a token with `environments:write` permission.
+
+## Path Parameters
+
+<ParamField path="id" type="string" required>
+  The unique identifier of the environment to delete.
+</ParamField>
+
+## Response
+
+Returns `204 No Content` on successful deletion.
+
+## Example Request
+
+```bash
+curl -X DELETE https://api.weaponx.io/v1/admin/environments/production-us \
+  -H "Authorization: Bearer YOUR_TOKEN"
+```
+
+## Example Response
+
+No response body (204 status code).
+
+## Error Responses
+
+### 401 Unauthorized
+
+```json
+{
+  "error": "Unauthorized",
+  "message": "Invalid or missing authentication token"
+}
+```
+
+### 403 Forbidden
+
+```json
+{
+  "error": "Forbidden",
+  "message": "Insufficient permissions: environments:write required"
+}
+```
+
+### 404 Not Found
+
+```json
+{
+  "error": "Not Found",
+  "message": "Environment not found"
+}
+```
+
+<Warning>
+  Deleting an environment will unlink all associated projects. Projects will not be deleted, but their environment association will be set to null.
+</Warning>

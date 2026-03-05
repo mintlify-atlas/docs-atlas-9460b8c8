@@ -1,0 +1,203 @@
+---
+title: Create Configuration
+api: POST /v1/admin/configs
+description: Create a new feature flag or configuration
+---
+
+## Authentication
+
+Requires a token with `configs:write` permission.
+
+## Request Body
+
+<ParamField body="project_reference" type="string" required>
+  Project reference identifier (max 100 characters).
+</ParamField>
+
+<ParamField body="key" type="string" required>
+  Unique configuration key within the project (max 255 characters). Used to retrieve the config value.
+</ParamField>
+
+<ParamField body="description" type="string">
+  Optional description of the configuration purpose.
+</ParamField>
+
+<ParamField body="type" type="string" required>
+  Configuration value type. One of: `BOOLEAN`, `JSON`, `STRING`, `SECRET`.
+</ParamField>
+
+<ParamField body="is_active" type="boolean" required>
+  Whether the configuration is currently active.
+</ParamField>
+
+<ParamField body="default_value" type="any" required>
+  Default value returned when no rules match. Type must match the `type` field.
+</ParamField>
+
+<ParamField body="validation_schema" type="object">
+  Optional JSON schema for validating configuration values.
+</ParamField>
+
+## Response
+
+<ResponseField name="data" type="object">
+  The created configuration object.
+  
+  <ResponseField name="id" type="string">
+    Unique configuration ID (UUID).
+  </ResponseField>
+  
+  <ResponseField name="project_reference" type="string">
+    Project reference.
+  </ResponseField>
+  
+  <ResponseField name="key" type="string">
+    Configuration key.
+  </ResponseField>
+  
+  <ResponseField name="description" type="string">
+    Configuration description.
+  </ResponseField>
+  
+  <ResponseField name="type" type="string">
+    Configuration type.
+  </ResponseField>
+  
+  <ResponseField name="is_active" type="boolean">
+    Active status.
+  </ResponseField>
+  
+  <ResponseField name="default_value" type="any">
+    Default value.
+  </ResponseField>
+  
+  <ResponseField name="validation_schema" type="object">
+    Validation schema.
+  </ResponseField>
+  
+  <ResponseField name="created_at" type="string">
+    ISO 8601 timestamp of creation.
+  </ResponseField>
+  
+  <ResponseField name="updated_at" type="string">
+    ISO 8601 timestamp of last update.
+  </ResponseField>
+</ResponseField>
+
+## Example Request
+
+```bash
+curl -X POST https://api.weaponx.io/v1/admin/configs \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "project_reference": "my-app",
+    "key": "enable_new_ui",
+    "description": "Toggle for new user interface",
+    "type": "BOOLEAN",
+    "is_active": true,
+    "default_value": false
+  }'
+```
+
+## Example Response
+
+```json
+{
+  "data": {
+    "id": "550e8400-e29b-41d4-a716-446655440000",
+    "project_reference": "my-app",
+    "key": "enable_new_ui",
+    "description": "Toggle for new user interface",
+    "type": "BOOLEAN",
+    "is_active": true,
+    "default_value": false,
+    "validation_schema": {},
+    "created_at": "2026-03-05T10:30:00Z",
+    "updated_at": "2026-03-05T10:30:00Z"
+  }
+}
+```
+
+## Configuration Types
+
+### BOOLEAN
+
+For simple on/off toggles:
+
+```json
+{
+  "type": "BOOLEAN",
+  "default_value": false
+}
+```
+
+### STRING
+
+For text values:
+
+```json
+{
+  "type": "STRING",
+  "default_value": "production"
+}
+```
+
+### JSON
+
+For complex structured data:
+
+```json
+{
+  "type": "JSON",
+  "default_value": {
+    "theme": "dark",
+    "fontSize": 14
+  }
+}
+```
+
+### SECRET
+
+For sensitive values (encrypted at rest):
+
+```json
+{
+  "type": "SECRET",
+  "default_value": "sk_live_..."
+}
+```
+
+## Error Responses
+
+### 400 Bad Request
+
+```json
+{
+  "error": "Validation Error",
+  "details": [
+    {
+      "message": "\"type\" must be one of [BOOLEAN, JSON, STRING, SECRET]",
+      "path": ["type"]
+    }
+  ]
+}
+```
+
+### 401 Unauthorized
+
+```json
+{
+  "error": "Unauthorized",
+  "message": "Invalid or missing authentication token"
+}
+```
+
+### 403 Forbidden
+
+```json
+{
+  "error": "Forbidden",
+  "message": "Insufficient permissions: configs:write required"
+}
+```

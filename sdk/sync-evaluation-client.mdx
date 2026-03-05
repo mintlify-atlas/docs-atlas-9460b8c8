@@ -1,0 +1,569 @@
+---
+title: SyncEvaluationClient
+description: High-performance local evaluation with singleton pattern and cache management
+---
+
+## Overview
+
+The `SyncEvaluationClient` provides blazing-fast, local evaluation of feature flags by caching configurations in memory. It implements a singleton pattern and evaluates rules client-side, eliminating network latency for each evaluation.
+
+**Key Features:**
+- **Singleton Pattern**: Single instance shared across your application
+- **Local Evaluation**: Rules processed in-memory (sub-millisecond latency)
+- **Periodic Sync**: Fetch latest configs on your schedule
+- **Offline Support**: Continue evaluating with cached data
+- **Rollout Support**: Consistent hash-based rollout bucketing
+
+**Use this client when:**
+- You need high-performance, low-latency evaluation (< 1ms)
+- You can tolerate eventual consistency
+- You want to minimize API calls and network dependency
+- You need offline evaluation capability
+
+**Use `EvaluationClient` instead if:**
+- You need real-time consistency
+- Configuration changes must take effect immediately
+- You want to minimize client memory usage
+
+## Initialization
+
+The client uses a singleton pattern - call `getInstance()` to get or create the instance:
+
+```typescript
+import { SyncEvaluationClient } from 'weapon-x-sdk';
+
+const client = SyncEvaluationClient.getInstance({
+  baseUrl: 'https://api.weapon-x.io',
+  headers: {
+    Authorization: 'Bearer your-api-key'
+  }
+});
+```
+
+<Warning>
+The first call to `getInstance()` creates the singleton. Subsequent calls return the same instance, **ignoring any new options**. Call `resetInstance()` if you need to reconfigure.
+</Warning>
+
+## Core Methods
+
+### getInstance
+
+Get or create the singleton instance.
+
+```typescript
+static getInstance(options: WeaponXClientOptions): SyncEvaluationClient
+```
+
+```typescript
+const client = SyncEvaluationClient.getInstance({
+  baseUrl: 'https://api.weapon-x.io',
+  headers: { Authorization: 'Bearer api-key' }
+});
+```
+
+### resetInstance
+
+Destroy the singleton instance (useful for testing or reconfiguration).
+
+```typescript
+static resetInstance(): void
+```
+
+```typescript
+SyncEvaluationClient.resetInstance();
+// Next getInstance() call will create a new instance
+```
+
+### sync
+
+Fetch and cache all configurations for a project.
+
+```typescript
+async sync(projectReference: string): Promise<void>
+```
+
+```typescript
+const client = SyncEvaluationClient.getInstance(options);
+
+// Initial sync
+await client.sync('my-app');
+
+// Now evaluations are instant and local
+const result = client.evaluate({
+  filters: { userId: '123' },
+  keys: ['feature-a']
+});
+```
+
+<Info>
+You **must** call `sync()` at least once before calling `evaluate()`. Evaluating before syncing will return fallback values for all keys.
+</Info>
+
+### evaluate
+
+Evaluate feature flags locally using cached configurations.
+
+```typescript
+evaluate(data: EvaluateRequest): Record<string, EvaluationResult>
+```
+
+**Key Differences from `EvaluationClient.evaluate()`:**
+- **Synchronous**: Returns immediately (no `await`)
+- **No network call**: Uses local cache
+- **No metadata**: Returns only the data object, no `meta` field
+
+```typescript
+interface EvaluateRequest {
+  filters: Record<string, unknown>;  // Context attributes
+  keys: string[];                    // Config keys to evaluate
+  identifier?: string;               // User/entity ID for rollouts
+}
+
+interface EvaluationResult {
+  value: unknown;           // Evaluated value
+  rule_id: string;          // Matched rule ID or 'default'/'none'
+  reason: EvaluationReason; // Evaluation reason
+}
+```
+
+### isInitialized
+
+Check if the client has synced at least once.
+
+```typescript
+isInitialized(): boolean
+```
+
+```typescript
+if (!client.isInitialized()) {
+  await client.sync('my-app');
+}
+```
+
+### getCachedConfigs
+
+Access the cached configuration map (read-only).
+
+```typescript
+getCachedConfigs(): ReadonlyMap<string, Config>
+```
+
+```typescript
+const configs = client.getCachedConfigs();
+for (const [key, config] of configs.entries()) {
+  console.log(`${key}: ${config.type} - ${config.description}`);
+}
+```
+
+## Usage Examples
+
+<Tabs>
+  <Tab title="Basic Setup">
+    ```typescript
+    import { SyncEvaluationClient } from 'weapon-x-sdk';
+
+    // Get singleton instance
+    const client = SyncEvaluationClient.getInstance({
+      baseUrl: 'https://api.weapon-x.io',
+      headers: { Authorization: 'Bearer api-key' }
+    });
+
+    // Sync configurations once at app startup
+    await client.sync('my-app');
+
+    // Evaluate locally (instant)
+    const result = client.evaluate({
+      filters: {
+        userId: 'user-123',
+        plan: 'premium'
+      },
+      keys: ['new-ui', 'max-upload-gb']
+    });
+
+    console.log(result['new-ui'].value);        // true/false
+    console.log(result['max-upload-gb'].value); // e.g., 100
+    ```
+  </Tab>
+  
+  <Tab title="With Periodic Sync">
+    ```typescript
+    const client = SyncEvaluationClient.getInstance({
+      baseUrl: 'https://api.weapon-x.io',
+      headers: { Authorization: 'Bearer api-key' }
+    });
+
+    // Initial sync
+    await client.sync('my-app');
+
+    // Re-sync every 5 minutes to get latest configs
+    setInterval(async () => {
+      try {
+        await client.sync('my-app');
+        console.log('Synced latest configs');
+      } catch (error) {
+        console.error('Sync failed:', error);
+        // Continue using cached data
+      }
+    }, 5 * 60 * 1000);
+
+    // Evaluations always use latest cached data
+    function checkFeature(userId: string, feature: string): boolean {
+      const result = client.evaluate({
+        filters: { userId },
+        keys: [feature]
+      });
+      return result[feature].value as boolean;
+    }
+    ```
+  </Tab>
+  
+  <Tab title="Rollout Evaluation">
+    ```typescript
+    const client = SyncEvaluationClient.getInstance(options);
+    await client.sync('my-app');
+
+    // Rollout with identifier for consistent bucketing
+    const result = client.evaluate({
+      filters: {
+        plan: 'free'
+      },
+      keys: ['gradual-rollout-feature'],
+      identifier: 'user-456'  // Same user = same rollout bucket
+    });
+
+    // User 456 will consistently be in or out of the rollout
+    if (result['gradual-rollout-feature'].value === true) {
+      // User is in the rollout percentage
+    }
+    ```
+  </Tab>
+  
+  <Tab title="Multiple Projects">
+    ```typescript
+    // Client is singleton, but you can sync different projects
+    const client = SyncEvaluationClient.getInstance(options);
+
+    // Sync project A
+    await client.sync('project-a');
+    let result = client.evaluate({
+      filters: { userId: '123' },
+      keys: ['feature-x']
+    });
+
+    // Sync project B (replaces project A cache!)
+    await client.sync('project-b');
+    result = client.evaluate({
+      filters: { userId: '123' },
+      keys: ['feature-y']
+    });
+
+    // WARNING: project-a configs are no longer cached
+    ```
+  </Tab>
+</Tabs>
+
+## Local Evaluation Logic
+
+The `evaluate()` method processes rules locally using the following algorithm:
+
+```typescript
+for each requested key:
+  1. Look up config in cache
+     - If not found → return { value: null, reason: 'FALLBACK' }
+  
+  2. Check if config is active
+     - If disabled → return { value: null, reason: 'DISABLED' }
+  
+  3. Iterate through rules (in priority order)
+     - Evaluate all conditions for each rule
+     - If all conditions match:
+       - Check rollout percentage (if < 100)
+       - Compute hash(identifier + rule_id) mod 100
+       - If hash >= rollout → skip this rule
+       - Otherwise → return rule's return_value with reason 'MATCH'
+  
+  4. If no rules matched
+     - Return config's default_value with reason 'FALLBACK'
+```
+
+## Rollout Hash Function
+
+### computeRolloutHash
+
+Compute the rollout bucket for a user/entity.
+
+```typescript
+computeRolloutHash(identifier: string, ruleId: string): number
+```
+
+Returns a value from 0-99. User is included in rollout if hash < rollout_percentage.
+
+```typescript
+const hash = client.computeRolloutHash('user-123', 'rule-abc');
+console.log(hash); // e.g., 42
+
+// If rollout is 50%, user-123 is included (42 < 50)
+// If rollout is 30%, user-123 is excluded (42 >= 30)
+```
+
+<Info>
+The hash is deterministic - same identifier + ruleId always produces the same hash, ensuring consistent rollout bucketing.
+</Info>
+
+## Condition Operators
+
+The local evaluator supports all operators:
+
+| Operator | Description | Example |
+|----------|-------------|----------|
+| `EQUALS` | Exact match (case-insensitive) | `country EQUALS "US"` |
+| `NOT_EQUALS` | Not equal (case-insensitive) | `plan NOT_EQUALS "free"` |
+| `IN` | Value in list | `region IN ["US", "CA", "UK"]` |
+| `NOT_IN` | Value not in list | `country NOT_IN ["CN", "RU"]` |
+| `CONTAINS` | String contains substring | `email CONTAINS "@company.com"` |
+| `GREATER_THAN` | Numeric comparison | `age GREATER_THAN "18"` |
+| `LESS_THAN` | Numeric comparison | `credits LESS_THAN "100"` |
+| `REGEX` | Regular expression match | `version REGEX "^2\\..*"` |
+
+```typescript
+// Example: Complex rule evaluation
+const result = client.evaluate({
+  filters: {
+    email: 'admin@company.com',
+    age: 25,
+    plan: 'enterprise',
+    country: 'US'
+  },
+  keys: ['admin-dashboard']
+});
+
+// Matches rule with conditions:
+// - email CONTAINS "@company.com"
+// - age GREATER_THAN "21"
+// - plan IN ["enterprise", "premium"]
+// - country EQUALS "US"
+```
+
+## Advanced Patterns
+
+### Application Startup
+
+```typescript
+import { SyncEvaluationClient } from 'weapon-x-sdk';
+
+export class FeatureFlagService {
+  private static client: SyncEvaluationClient;
+  private static syncInterval: NodeJS.Timeout;
+
+  static async initialize(projectRef: string) {
+    this.client = SyncEvaluationClient.getInstance({
+      baseUrl: process.env.WEAPON_X_API_URL!,
+      headers: {
+        Authorization: `Bearer ${process.env.WEAPON_X_API_KEY}`
+      }
+    });
+
+    // Initial sync
+    await this.client.sync(projectRef);
+
+    // Auto-sync every 10 minutes
+    this.syncInterval = setInterval(async () => {
+      try {
+        await this.client.sync(projectRef);
+      } catch (error) {
+        console.error('Background sync failed:', error);
+      }
+    }, 10 * 60 * 1000);
+  }
+
+  static shutdown() {
+    if (this.syncInterval) {
+      clearInterval(this.syncInterval);
+    }
+  }
+
+  static isEnabled(
+    key: string,
+    context: Record<string, unknown>,
+    defaultValue = false
+  ): boolean {
+    if (!this.client.isInitialized()) {
+      console.warn('FeatureFlagService not initialized');
+      return defaultValue;
+    }
+
+    const result = this.client.evaluate({
+      filters: context,
+      keys: [key],
+      identifier: context.userId as string
+    });
+
+    return (result[key]?.value as boolean) ?? defaultValue;
+  }
+}
+
+// App startup
+await FeatureFlagService.initialize('my-app');
+
+// Runtime usage
+if (FeatureFlagService.isEnabled('new-checkout', { userId: user.id })) {
+  renderNewCheckout();
+}
+```
+
+### Cache Inspection
+
+```typescript
+const client = SyncEvaluationClient.getInstance(options);
+await client.sync('my-app');
+
+// Inspect cached configs
+const configs = client.getCachedConfigs();
+
+console.log(`Cached ${configs.size} configurations:`);
+
+for (const [key, config] of configs.entries()) {
+  console.log(`\n${key}:`);
+  console.log(`  Type: ${config.type}`);
+  console.log(`  Active: ${config.is_active}`);
+  console.log(`  Default: ${JSON.stringify(config.default_value)}`);
+  console.log(`  Rules: ${config.rules?.length ?? 0}`);
+  
+  if (config.rules) {
+    for (const rule of config.rules) {
+      console.log(`    - ${rule.name} (${rule.rollout_percentage}% rollout)`);
+    }
+  }
+}
+```
+
+### Testing Helper
+
+```typescript
+import { SyncEvaluationClient } from 'weapon-x-sdk';
+
+export function resetFeatureFlags() {
+  SyncEvaluationClient.resetInstance();
+}
+
+// In tests
+import { resetFeatureFlags } from './test-utils';
+
+beforeEach(() => {
+  resetFeatureFlags();
+});
+
+test('feature flag evaluation', async () => {
+  const client = SyncEvaluationClient.getInstance({
+    baseUrl: 'http://localhost:3001',
+    headers: { Authorization: 'Bearer test-key' }
+  });
+
+  await client.sync('test-project');
+
+  const result = client.evaluate({
+    filters: { plan: 'premium' },
+    keys: ['premium-feature']
+  });
+
+  expect(result['premium-feature'].value).toBe(true);
+});
+```
+
+### Sync Error Handling
+
+```typescript
+const client = SyncEvaluationClient.getInstance(options);
+
+async function syncWithRetry(projectRef: string, maxRetries = 3) {
+  for (let i = 0; i < maxRetries; i++) {
+    try {
+      await client.sync(projectRef);
+      console.log('Sync successful');
+      return;
+    } catch (error) {
+      console.error(`Sync attempt ${i + 1} failed:`, error);
+      
+      if (i === maxRetries - 1) {
+        console.error('Max retries reached, using cached data');
+        
+        if (!client.isInitialized()) {
+          throw new Error('No cached data available');
+        }
+      } else {
+        // Exponential backoff
+        await new Promise(resolve => 
+          setTimeout(resolve, Math.pow(2, i) * 1000)
+        );
+      }
+    }
+  }
+}
+
+await syncWithRetry('my-app');
+```
+
+## Performance Characteristics
+
+### Benchmarks
+
+| Operation | Latency |
+|-----------|----------|
+| `sync()` | 50-200ms (network) |
+| `evaluate()` single key | ~0.001ms |
+| `evaluate()` 10 keys | ~0.005ms |
+| `evaluate()` with complex rules | ~0.01ms |
+
+### Memory Usage
+
+```typescript
+// Rough estimates
+// - Each Config: ~500 bytes
+// - Each Rule: ~200 bytes
+// - 100 configs with 5 rules each: ~100KB
+```
+
+## Comparison: Sync vs Remote
+
+| Aspect | SyncEvaluationClient | EvaluationClient |
+|--------|----------------------|------------------|
+| **Latency** | < 1ms | 50-200ms |
+| **Network calls** | Only during sync | Every evaluation |
+| **Consistency** | Eventually consistent | Real-time |
+| **Offline support** | ✅ Yes | ❌ No |
+| **Memory usage** | Caches all configs | Minimal |
+| **Setup complexity** | Requires sync management | Simple |
+| **Scalability** | Excellent | Good |
+
+## Best Practices
+
+1. **Sync Strategy**: Choose sync frequency based on your consistency needs
+   - Critical configs: Short interval (1-5 min)
+   - Static configs: Long interval (30+ min)
+   - Low-priority: On-demand or app startup only
+
+2. **Error Handling**: Always handle sync failures gracefully
+   - Continue using cached data on sync failure
+   - Log errors for monitoring
+   - Have fallback defaults for critical flags
+
+3. **Singleton Management**: Be aware of the singleton pattern
+   - First `getInstance()` wins
+   - Call `resetInstance()` only when reconfiguring
+   - In tests, reset between test cases
+
+4. **Memory Efficiency**: If caching hundreds of configs, consider:
+   - Using separate projects for different services
+   - Syncing only when needed (not on every request)
+   - Monitoring memory usage in production
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="EvaluationClient" icon="cloud" href="/sdk/evaluation-client">
+    Learn about remote evaluation
+  </Card>
+  <Card title="AdminClient" icon="shield-halved" href="/sdk/admin-client">
+    Manage configs and rules
+  </Card>
+</CardGroup>

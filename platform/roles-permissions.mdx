@@ -1,0 +1,471 @@
+---
+title: 'Roles & Permissions'
+description: 'Configure role-based access control and manage team permissions'
+---
+
+## Overview
+
+Weapon-X uses a role-based access control (RBAC) system to manage permissions. Each authentication token is assigned a role, and that role determines which API operations the token can perform.
+
+## Role Model
+
+Roles are defined in the `Role` model:
+
+```typescript
+interface Role {
+  id: string;           // Unique identifier (UUID)
+  name: string;         // Role name (unique)
+  permissions: string[]; // Array of permission strings
+  created_at: Date;
+  updated_at: Date;
+}
+```
+
+### Key Properties
+
+- **name**: Must be unique across all roles. Used to identify the role.
+- **permissions**: Array of permission strings that grant access to specific operations.
+
+## Permission System
+
+Permissions follow a resource-action pattern: `resource:action`
+
+### Available Permissions
+
+<ParamField path="projects:read" type="permission">
+  View projects and their details
+</ParamField>
+
+<ParamField path="projects:write" type="permission">
+  Create, update, and delete projects
+</ParamField>
+
+<ParamField path="configs:read" type="permission">
+  View configurations and evaluate feature flags
+</ParamField>
+
+<ParamField path="configs:write" type="permission">
+  Create, update, and delete configurations
+</ParamField>
+
+<ParamField path="rules:read" type="permission">
+  View rules attached to configurations
+</ParamField>
+
+<ParamField path="rules:write" type="permission">
+  Create, update, and delete rules
+</ParamField>
+
+<ParamField path="roles:read" type="permission">
+  View roles and their permissions
+</ParamField>
+
+<ParamField path="roles:write" type="permission">
+  Create, update, and delete roles
+</ParamField>
+
+<ParamField path="authentications:read" type="permission">
+  View authentication tokens
+</ParamField>
+
+<ParamField path="authentications:write" type="permission">
+  Create, update, and delete authentication tokens
+</ParamField>
+
+<ParamField path="environments:read" type="permission">
+  View environments
+</ParamField>
+
+<ParamField path="environments:write" type="permission">
+  Create, update, and delete environments
+</ParamField>
+
+## Creating Roles
+
+### API Request
+
+<CodeGroup>
+```bash cURL
+curl -X POST https://api.weapon-x.io/v1/admin/roles \
+  -H "Authorization: Bearer YOUR_ADMIN_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "developer",
+    "permissions": [
+      "projects:read",
+      "configs:read",
+      "configs:write",
+      "rules:read",
+      "rules:write"
+    ]
+  }'
+```
+
+```typescript TypeScript
+const response = await fetch('https://api.weapon-x.io/v1/admin/roles', {
+  method: 'POST',
+  headers: {
+    'Authorization': 'Bearer YOUR_ADMIN_TOKEN',
+    'Content-Type': 'application/json'
+  },
+  body: JSON.stringify({
+    name: 'developer',
+    permissions: [
+      'projects:read',
+      'configs:read',
+      'configs:write',
+      'rules:read',
+      'rules:write'
+    ]
+  })
+});
+
+const { data } = await response.json();
+```
+</CodeGroup>
+
+<Warning>
+  **Role Names Must Be Unique**: You cannot create two roles with the same name. The system will return a conflict error.
+</Warning>
+
+### Required Permissions
+
+To create roles, your token must have the `roles:write` permission.
+
+## Common Role Configurations
+
+<AccordionGroup>
+  <Accordion title="Admin" icon="crown">
+    Full access to all resources and operations
+    
+    ```json
+    {
+      "name": "admin",
+      "permissions": [
+        "projects:read",
+        "projects:write",
+        "configs:read",
+        "configs:write",
+        "rules:read",
+        "rules:write",
+        "roles:read",
+        "roles:write",
+        "authentications:read",
+        "authentications:write",
+        "environments:read",
+        "environments:write"
+      ]
+    }
+    ```
+  </Accordion>
+  
+  <Accordion title="Developer" icon="code">
+    Read and write access to configurations and rules
+    
+    ```json
+    {
+      "name": "developer",
+      "permissions": [
+        "projects:read",
+        "configs:read",
+        "configs:write",
+        "rules:read",
+        "rules:write"
+      ]
+    }
+    ```
+  </Accordion>
+  
+  <Accordion title="Read-Only" icon="eye">
+    View-only access for monitoring and analytics
+    
+    ```json
+    {
+      "name": "viewer",
+      "permissions": [
+        "projects:read",
+        "configs:read",
+        "rules:read",
+        "roles:read",
+        "authentications:read",
+        "environments:read"
+      ]
+    }
+    ```
+  </Accordion>
+  
+  <Accordion title="Service Account" icon="robot">
+    Limited to evaluating configurations (for application runtime)
+    
+    ```json
+    {
+      "name": "service",
+      "permissions": [
+        "configs:read"
+      ]
+    }
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Managing Roles
+
+### List All Roles
+
+```bash
+GET /v1/admin/roles
+```
+
+Returns all roles in the system.
+
+**Required Permission**: `roles:read`
+
+### Get Role Details
+
+```bash
+GET /v1/admin/roles/{id}
+```
+
+Retrieve a specific role by its UUID.
+
+**Required Permission**: `roles:read`
+
+### Update Role
+
+<CodeGroup>
+```bash Update Permissions
+curl -X PUT https://api.weapon-x.io/v1/admin/roles/{id} \
+  -H "Authorization: Bearer YOUR_ADMIN_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "permissions": [
+      "projects:read",
+      "configs:read",
+      "configs:write"
+    ]
+  }'
+```
+
+```bash Rename Role
+curl -X PUT https://api.weapon-x.io/v1/admin/roles/{id} \
+  -H "Authorization: Bearer YOUR_ADMIN_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{ "name": "senior-developer" }'
+```
+</CodeGroup>
+
+**Required Permission**: `roles:write`
+
+### Delete Role
+
+```bash
+DELETE /v1/admin/roles/{id}
+```
+
+Permanently removes a role.
+
+<Warning>
+  You cannot delete a role that is currently assigned to authentication tokens. Remove or reassign those tokens first.
+</Warning>
+
+**Required Permission**: `roles:write`
+
+## Authorization Flow
+
+When an API request is made, the authorization middleware in `/server/src/middleware/authorization.ts:22` validates permissions:
+
+<Steps>
+  <Step title="Extract Token">
+    Parse the `Authorization: Bearer <token>` header
+  </Step>
+  
+  <Step title="Lookup Authentication">
+    Find the authentication record and load its associated role
+  </Step>
+  
+  <Step title="Check Required Permissions">
+    Verify the role has **ALL** required permissions for the endpoint
+  </Step>
+  
+  <Step title="Grant or Deny Access">
+    Allow the request if permissions match, otherwise return 403 Forbidden
+  </Step>
+</Steps>
+
+### Permission Checking Logic
+
+From `/server/src/middleware/authorization.ts:69`:
+
+```typescript
+const rolePermissions = auth.role?.permissions ?? [];
+const missing = requiredPermissions.filter(p => !rolePermissions.includes(p));
+
+if (missing.length > 0) {
+  return res.status(403).json({
+    error: 'Forbidden',
+    message: `Missing required permissions: ${missing.join(', ')}`
+  });
+}
+```
+
+<Info>
+  **All Required**: A token must have **every** permission specified in the endpoint's requirements. If even one is missing, the request is denied.
+</Info>
+
+## Endpoint Permissions
+
+Each admin endpoint requires specific permissions. Here's a reference from `/server/src/routes/index.ts`:
+
+### Environment Endpoints
+
+| Endpoint | Method | Permission |
+|----------|--------|------------|
+| `/v1/admin/environments` | POST | `environments:write` |
+| `/v1/admin/environments` | GET | `environments:read` |
+| `/v1/admin/environments/:id` | GET | `environments:read` |
+| `/v1/admin/environments/:id` | PUT | `environments:write` |
+| `/v1/admin/environments/:id` | DELETE | `environments:write` |
+
+### Project Endpoints
+
+| Endpoint | Method | Permission |
+|----------|--------|------------|
+| `/v1/admin/projects` | POST | `projects:write` |
+| `/v1/admin/projects` | GET | `projects:read` |
+| `/v1/admin/projects/:reference` | GET | `projects:read` |
+| `/v1/admin/projects/:reference` | PUT | `projects:write` |
+| `/v1/admin/projects/:reference` | DELETE | `projects:write` |
+
+### Role Endpoints
+
+| Endpoint | Method | Permission |
+|----------|--------|------------|
+| `/v1/admin/roles` | POST | `roles:write` |
+| `/v1/admin/roles` | GET | `roles:read` |
+| `/v1/admin/roles/:id` | GET | `roles:read` |
+| `/v1/admin/roles/:id` | PUT | `roles:write` |
+| `/v1/admin/roles/:id` | DELETE | `roles:write` |
+
+### Authentication Endpoints
+
+| Endpoint | Method | Permission |
+|----------|--------|------------|
+| `/v1/admin/authentications` | POST | `authentications:write` |
+| `/v1/admin/authentications/:id` | GET | `authentications:read` |
+| `/v1/admin/projects/:projectReference/authentications` | GET | `authentications:read` |
+| `/v1/admin/authentications/:id` | PUT | `authentications:write` |
+| `/v1/admin/authentications/:id` | DELETE | `authentications:write` |
+
+### Configuration Endpoints
+
+| Endpoint | Method | Permission |
+|----------|--------|------------|
+| `/v1/admin/configs` | POST | `configs:write` |
+| `/v1/admin/configs/:key/rules` | POST | `rules:write` |
+| `/v1/evaluate` | POST | `configs:read` |
+
+<Note>
+  The `/v1/auth/introspect` endpoint does **not** use authorization middleware. It validates the token provided in the request itself.
+</Note>
+
+## Assigning Roles to Tokens
+
+When creating or updating an authentication token, specify the `role_id`:
+
+```bash
+curl -X POST https://api.weapon-x.io/v1/admin/authentications \
+  -H "Authorization: Bearer YOUR_ADMIN_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "project_reference": "my-project",
+    "role_id": "550e8400-e29b-41d4-a716-446655440000",
+    "secret_key": "wxk_live_xyz",
+    "email": "user@company.com"
+  }'
+```
+
+The token will inherit all permissions from the specified role.
+
+## Best Practices
+
+<CardGroup cols={2}>
+  <Card title="Principle of Least Privilege" icon="shield-halved">
+    Grant only the minimum permissions needed for each role. Service accounts should typically only have `configs:read`.
+  </Card>
+  
+  <Card title="Separate Roles by Environment" icon="layer-group">
+    Create different roles for production, staging, and development to limit blast radius.
+  </Card>
+  
+  <Card title="Regular Permission Audits" icon="clipboard-check">
+    Periodically review roles and remove unnecessary permissions.
+  </Card>
+  
+  <Card title="Document Role Purpose" icon="book">
+    Use clear role names that indicate their intended use (e.g., `prod-read-only`, `dev-full-access`).
+  </Card>
+</CardGroup>
+
+## Error Responses
+
+<ResponseField name="403 Forbidden">
+  Token lacks required permissions for the requested operation
+  
+  ```json
+  {
+    "error": "Forbidden",
+    "message": "Missing required permissions: configs:write, rules:write"
+  }
+  ```
+</ResponseField>
+
+<ResponseField name="409 Conflict">
+  Attempting to create a role with a duplicate name
+  
+  ```json
+  {
+    "error": "Conflict",
+    "message": "Role with name 'developer' already exists."
+  }
+  ```
+</ResponseField>
+
+## Example Workflow
+
+<Steps>
+  <Step title="Create Roles">
+    Define roles for your team structure (admin, developer, viewer)
+  </Step>
+  
+  <Step title="Generate Tokens">
+    Create authentication tokens and assign appropriate roles
+  </Step>
+  
+  <Step title="Distribute Tokens">
+    Share tokens with team members or configure them in applications
+  </Step>
+  
+  <Step title="Monitor Usage">
+    Use audit logs to track which roles are performing which actions
+  </Step>
+  
+  <Step title="Adjust Permissions">
+    Update roles as team needs change
+  </Step>
+</Steps>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Authentication" icon="key" href="/platform/authentication">
+    Learn how to create and manage authentication tokens
+  </Card>
+  
+  <Card title="Audit Logs" icon="clock-rotate-left" href="/platform/audit-logs">
+    Track permission usage and role assignments
+  </Card>
+  
+  <Card title="API Reference" icon="code" href="/api-reference">
+    Complete API documentation for role endpoints
+  </Card>
+</CardGroup>
